@@ -32,6 +32,11 @@ az acr build \
 To pin a specific `code-server` version during ACR build:
 
 ```bash
+When attaching from VS Code, set the current kubectl namespace to the workspace namespace first. The Dev Containers extension queries the current kubectl namespace and will not discover the pod if kubectl is still pointed at `default`.
+
+```bash
+kubectl config set-context --current --namespace=devcontainer-<username>
+```
 az acr build \
   --registry <acr-name> \
   --image remote-devcontainer:latest \

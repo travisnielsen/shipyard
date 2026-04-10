@@ -90,7 +90,7 @@ variable "tags" {
 }
 
 variable "platform_admins_group_id" {
-  description = "Object ID of the Entra group that receives platform admin privileges (Key Vault Administrator, AcrPush)."
+  description = "Object ID of the Entra group that receives platform admin privileges (Key Vault Administrator, AcrPush, AKS RBAC Cluster Admin)."
   type        = string
   default     = null
 }

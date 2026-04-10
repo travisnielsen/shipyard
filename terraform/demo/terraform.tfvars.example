@@ -21,6 +21,10 @@ dev_vm_admin_password      = "ReplaceWithStrongPassword!123"
 aks_node_count = 2
 aks_vm_size    = "Standard_D4s_v5"
 
+# Entra group object IDs used for RBAC assignments.
+platform_admins_group_id = "00000000-0000-0000-0000-000000000000"
+dev_group_id             = "00000000-0000-0000-0000-000000000000"
+
 tags = {
   environment = "demo"
   managedBy   = "terraform"
