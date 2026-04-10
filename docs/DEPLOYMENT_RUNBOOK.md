@@ -146,8 +146,16 @@ This script enforces fail-fast checks (AKS version, CSI driver, required RBAC ro
 
 Use VS Code with Kubernetes + Dev Containers extensions:
 
+- Set the current kubectl namespace to the workspace namespace first:
+
+```bash
+kubectl config set-context --current --namespace="devcontainer-<username>"
+```
+
 - Command Palette: `Dev Containers: Attach to Running Kubernetes Container...`
 - Select pod in namespace: `devcontainer-<username>`
+
+The Dev Containers extension discovers pods from the current kubectl namespace. If kubectl is still pointed at `default`, VS Code may report that no pods were found.
 
 ## 6. Day-2 Operations
 

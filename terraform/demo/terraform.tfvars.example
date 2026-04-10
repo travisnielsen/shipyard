@@ -32,6 +32,10 @@ workspace_user_group_id = "00000000-0000-0000-0000-000000000000"
 # Entra group object ID for workspace provisioning operators (AKS Cluster Admin Role).
 workspace_cluster_admin_group_id = "00000000-0000-0000-0000-000000000000"
 
+# Entra group object IDs used for RBAC assignments.
+platform_admins_group_id = "00000000-0000-0000-0000-000000000000"
+dev_group_id             = "00000000-0000-0000-0000-000000000000"
+
 tags = {
   environment = "demo"
   managedBy   = "terraform"

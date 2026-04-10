@@ -452,29 +452,12 @@ resource "azurerm_role_assignment" "aks_storage_file_mi_admin" {
   )
 }
 
-# Required for dynamic Azure Files share lifecycle operations (create/read/delete)
-# performed by the CSI provisioner against the storage account ARM resource.
 resource "azurerm_role_assignment" "aks_storage_account_contributor" {
   count = local.deploy_aks ? 1 : 0
 
   scope                = azurerm_storage_account.this.id
   role_definition_name = "Storage Account Contributor"
-  principal_id = coalesce(
-    try(module.aks[0].kubelet_identity.object_id, null),
-    try(module.aks[0].kubelet_identity.objectId, null)
-  )
-}
-
-# Required for SMB OAuth data-path access to the provisioned file share.
-resource "azurerm_role_assignment" "aks_storage_file_share_contributor" {
-  count = local.deploy_aks ? 1 : 0
-
-  scope                = azurerm_storage_account.this.id
-  role_definition_name = "Storage File Data SMB Share Contributor"
-  principal_id = coalesce(
-    try(module.aks[0].kubelet_identity.object_id, null),
-    try(module.aks[0].kubelet_identity.objectId, null)
-  )
+  principal_id         = module.aks[0].identity_principal_id
 }
 
 # ---------------------------------------------------------------------------
@@ -494,6 +477,14 @@ resource "azurerm_role_assignment" "platform_admins_acr_push" {
 
   scope                = module.container_registry.resource_id
   role_definition_name = "AcrPush"
+  principal_id         = var.platform_admins_group_id
+}
+
+resource "azurerm_role_assignment" "platform_admins_aks_rbac_cluster_admin" {
+  count = local.deploy_aks && var.platform_admins_group_id != null ? 1 : 0
+
+  scope                = module.aks[0].resource_id
+  role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
   principal_id         = var.platform_admins_group_id
 }
 

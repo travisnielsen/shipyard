@@ -25,7 +25,7 @@ spec:
       containers:
         - name: dev-workspace
           image: myacr.azurecr.io/remote-devcontainer:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8443
           env:

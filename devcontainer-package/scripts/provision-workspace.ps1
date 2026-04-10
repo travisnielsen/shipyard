@@ -56,81 +56,15 @@ function Invoke-KubectlApplyText {
     }
 }
 
-function Invoke-KubectlJson {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
-    $output = & kubectl @Arguments 2>$null
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($output | Out-String))) {
-        return $null
+function Test-KubectlCanGet {
+    param([string]$Resource)
+
+    $canI = & kubectl auth can-i get $Resource 2>&1
+    $canIText = ($canI | Out-String)
+
+    if ($LASTEXITCODE -ne 0 -or $canIText -match '^no\b') {
+        Fail "Current identity cannot get '$Resource' from the cluster. On AKS with Azure RBAC enabled, assign 'Azure Kubernetes Service RBAC Cluster Admin' (or a role that grants this resource) and refresh credentials."
     }
-
-    return ($output | Out-String | ConvertFrom-Json)
-}
-
-function Show-WorkspaceDiagnostics {
-    param(
-        [string]$Namespace,
-        [string]$StorageClassName
-    )
-
-    Write-Host "--> Deployment diagnostics for $($Namespace):"
-    & kubectl get pods -n $Namespace -o wide
-    & kubectl get pvc -n $Namespace
-    & kubectl get pv | Select-String $Namespace
-    & kubectl get storageclass $StorageClassName -o yaml
-    & kubectl describe deployment dev-workspace -n $Namespace
-    & kubectl describe pvc dev-workspace-pvc -n $Namespace
-    & kubectl get events -n $Namespace --sort-by=.lastTimestamp
-    Write-Host '--> kube-system Azure File CSI resources:'
-    & kubectl get deployment,daemonset,statefulset -n kube-system | Select-String 'azurefile|csi|file'
-}
-
-function Wait-DeploymentAvailable {
-    param(
-        [string]$Namespace,
-        [string]$DeploymentName,
-        [int]$TimeoutSeconds = 180
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-
-    while ((Get-Date) -lt $deadline) {
-        $deployment = Invoke-KubectlJson @('get', 'deployment', $DeploymentName, '-n', $Namespace, '-o', 'json')
-        if ($null -eq $deployment) {
-            Write-Host "    Waiting for deployment '$DeploymentName' to become readable..."
-            Start-Sleep -Seconds 5
-            continue
-        }
-
-        $desired = 1
-        if ($null -ne $deployment.spec -and $null -ne $deployment.spec.replicas) {
-            $desired = [int]$deployment.spec.replicas
-        }
-
-        $updated = 0
-        if ($null -ne $deployment.status -and $null -ne $deployment.status.updatedReplicas) {
-            $updated = [int]$deployment.status.updatedReplicas
-        }
-
-        $available = 0
-        if ($null -ne $deployment.status -and $null -ne $deployment.status.availableReplicas) {
-            $available = [int]$deployment.status.availableReplicas
-        }
-
-        $ready = 0
-        if ($null -ne $deployment.status -and $null -ne $deployment.status.readyReplicas) {
-            $ready = [int]$deployment.status.readyReplicas
-        }
-
-        Write-Host "    Rollout progress: updated=$updated/$desired ready=$ready/$desired available=$available/$desired"
-
-        if ($updated -ge $desired -and $available -ge $desired -and $ready -ge $desired) {
-            return $true
-        }
-
-        Start-Sleep -Seconds 10
-    }
-
-    return $false
 }
 
 Write-Host "==> Provisioning workspace for '$Username' in namespace '$Namespace'"
@@ -181,13 +115,13 @@ if (([int]$serverMajor -lt 1) -or (([int]$serverMajor -eq 1) -and ([int]$serverM
     Fail "AKS Kubernetes version $serverMajor.$serverMinorRaw does not meet minimum 1.34 for Azure Files managed identity mount mode."
 }
 
-Write-Host "    [3/7] Checking Azure Files CSI driver..."
-$csiDriverOutput = & kubectl get csidriver file.csi.azure.com -o name 2>&1
-if ($LASTEXITCODE -ne 0) {
-    $csiDriverErrorText = ($csiDriverOutput | Out-String)
+Test-KubectlCanGet 'csidrivers.storage.k8s.io'
 
-    if ($csiDriverErrorText -match 'Forbidden|cannot get resource "csidrivers"|does not have access to the resource in Azure') {
-        Fail "Current identity does not have permission to read cluster-scoped CSIDriver resources. Assign 'Azure Kubernetes Service Cluster Admin Role' on the AKS cluster scope, then retry."
+& kubectl get csidriver file.csi.azure.com -o name *> $null
+if ($LASTEXITCODE -ne 0) {
+    $csiCheckOutput = (& kubectl get csidriver file.csi.azure.com -o name 2>&1 | Out-String)
+    if ($csiCheckOutput -match 'forbidden|does not have access to the resource in Azure') {
+        Fail "Unable to verify Azure Files CSI driver because this identity cannot access cluster-scoped CSI resources. Assign 'Azure Kubernetes Service RBAC Cluster Admin' (or equivalent) and refresh credentials."
     }
 
     Fail 'Azure Files CSI driver (file.csi.azure.com) is not available in the current cluster.'
@@ -208,9 +142,10 @@ Write-Host "    [4/7] Discovering AKS cluster..."
 
 $AksResourceGroup = $env:AKS_RESOURCE_GROUP
 $AksClusterName = $env:AKS_CLUSTER_NAME
+$WorkspaceImage = $env:DEV_WORKSPACE_IMAGE
 
 if ([string]::IsNullOrWhiteSpace($AksResourceGroup) -or [string]::IsNullOrWhiteSpace($AksClusterName)) {
-    $discovered = Invoke-AzJson @("aks", "list", "-o", "json")
+    $discovered = Invoke-AzJson @('aks', 'list', '-o', 'json')
     if ($null -eq $discovered -or $discovered.Count -eq 0) {
         Fail 'No AKS clusters were discovered in the current Azure context. Set AKS_RESOURCE_GROUP and AKS_CLUSTER_NAME.'
     }
@@ -227,7 +162,26 @@ if ([string]::IsNullOrWhiteSpace($AksResourceGroup) -or [string]::IsNullOrWhiteS
     $AksClusterName = $discovered[0].name
 }
 
-Write-Host "    [5/7] Validating Azure storage account..."
+if ([string]::IsNullOrWhiteSpace($WorkspaceImage)) {
+    $acrLoginServersRaw = & az acr list --resource-group $AksResourceGroup --query "[].loginServer" --output tsv 2>$null
+    $acrLoginServers = @($acrLoginServersRaw | Where-Object { -not [string]::IsNullOrWhiteSpace("$_") })
+
+    if ($acrLoginServers.Count -eq 1) {
+        $WorkspaceImage = "$($acrLoginServers[0])/remote-devcontainer:latest"
+    } elseif ($acrLoginServers.Count -gt 1) {
+        Fail "Discovered multiple ACR registries in $AksResourceGroup. Set DEV_WORKSPACE_IMAGE explicitly (for example: <acr-login-server>/remote-devcontainer:latest)."
+    }
+}
+
+$kubeletIdentity = Invoke-AzJson @('aks', 'show', '--resource-group', $AksResourceGroup, '--name', $AksClusterName, '--query', 'identityProfile.kubeletidentity', '-o', 'json')
+$kubeletObjectId = ''
+if ($null -ne $kubeletIdentity) {
+    $kubeletObjectId = "$(($kubeletIdentity.objectId ?? $kubeletIdentity.object_id) ?? '')".Trim()
+}
+if ([string]::IsNullOrWhiteSpace($kubeletObjectId)) {
+    Fail "Could not resolve AKS kubelet identity object ID for $AksResourceGroup/$AksClusterName."
+}
+
 $storageAccountId = & az storage account show --name $StorageAccountName --resource-group $StorageResourceGroup --query id --output tsv 2>$null
 $storageAccountId = ($storageAccountId | Out-String).Trim()
 if ([string]::IsNullOrWhiteSpace($storageAccountId)) {
@@ -309,37 +263,9 @@ if ($LASTEXITCODE -ne 0) {
     Fail 'Failed to enable SMB OAuth on the storage account.'
 }
 
-$smbOAuthEnabled = $false
-$smbOAuthStateKnown = $false
-for ($attempt = 1; $attempt -le 5; $attempt++) {
-    $storageAccountState = Invoke-AzJson @("storage", "account", "show", "--name", $StorageAccountName, "--resource-group", $StorageResourceGroup, "-o", "json")
-    if ($null -ne $storageAccountState) {
-        $candidateValues = @(
-            $storageAccountState.enableSmbOAuth,
-            $storageAccountState.enableSmbOauth,
-            $storageAccountState.isSmbOAuthEnabled
-        )
-
-        foreach ($candidate in $candidateValues) {
-            if ($null -ne $candidate -and -not [string]::IsNullOrWhiteSpace(($candidate | Out-String).Trim())) {
-                $smbOAuthStateKnown = $true
-                $candidateText = (($candidate | Out-String).Trim()).ToLowerInvariant()
-                if ($candidateText -eq 'true') {
-                    $smbOAuthEnabled = $true
-                    break
-                }
-            }
-        }
-
-        if ($smbOAuthEnabled) {
-            break
-        }
-    }
-
-    Start-Sleep -Seconds 2
-}
-
-if (-not $smbOAuthEnabled -and $smbOAuthStateKnown) {
+$smbOAuthState = Invoke-AzJson @('storage', 'account', 'show', '--name', $StorageAccountName, '--resource-group', $StorageResourceGroup, '--query', '{legacy:enableSmbOauth,new:azureFilesIdentityBasedAuthentication.smbOAuthSettings.isSmbOAuthEnabled}', '-o', 'json')
+$smbOAuthEnabled = "$(($smbOAuthState.legacy ?? $smbOAuthState.new) ?? '')".Trim().ToLowerInvariant()
+if ($smbOAuthEnabled -ne 'true') {
     Fail 'Storage account SMB OAuth is not enabled after update call.'
 }
 
@@ -371,7 +297,11 @@ Invoke-KubectlApplyText $pvcContent
 
 Write-Host "--> Deploying dev-workspace in $Namespace..."
 $deploymentContent = (Get-Content (Join-Path $ManifestsDir 'dev-workspace-deployment.yaml') -Raw).Replace('namespace: devcontainers', "namespace: $Namespace")
-$deploymentContent = $deploymentContent.Replace('image: myacr.azurecr.io/remote-devcontainer:latest', "image: $WorkspaceImage")
+if (-not [string]::IsNullOrWhiteSpace($WorkspaceImage)) {
+    $deploymentContent = $deploymentContent.Replace('image: myacr.azurecr.io/remote-devcontainer:latest', "image: $WorkspaceImage")
+} elseif ($deploymentContent -match 'image:\s*myacr\.azurecr\.io/remote-devcontainer:latest') {
+    Fail "Deployment manifest still references placeholder image 'myacr.azurecr.io/remote-devcontainer:latest'. Set DEV_WORKSPACE_IMAGE (for example: <acr-login-server>/remote-devcontainer:latest)."
+}
 Invoke-KubectlApplyText $deploymentContent
 
 Write-Host "--> Waiting for deployment rollout in $Namespace..."
@@ -385,11 +315,14 @@ Write-Host '==> Done. To connect:'
 Write-Host ''
 Write-Host '    Option A - VS Code Kubernetes extension (recommended, no internet required from pod):'
 Write-Host "      1. Open VS Code locally with the 'Dev Containers' + 'Kubernetes' extensions installed."
-Write-Host '      2. Open the Command Palette (F1) and run:'
+Write-Host "      2. Set the current kubectl namespace so the Dev Containers extension can see the pod:"
+Write-Host "           kubectl config set-context --current --namespace=$Namespace"
+Write-Host '      3. Open the Command Palette (F1) and run:'
 Write-Host '           Dev Containers: Attach to Running Kubernetes Container...'
 Write-Host '         OR: Kubernetes explorer -> expand cluster -> right-click the pod -> Attach Visual Studio Code'
-Write-Host '      3. VS Code Server installs itself inside the pod automatically - no code-server credentials needed.'
-Write-Host '      4. Reference attached-container-config.json in manifests/ for recommended extension/settings defaults.'
+Write-Host '      4. VS Code will not discover the pod unless kubectl is set to the correct namespace.'
+Write-Host '      5. VS Code Server installs itself inside the pod automatically - no code-server credentials needed.'
+Write-Host '      6. Reference attached-container-config.json in manifests/ for recommended extension/settings defaults.'
 Write-Host ''
 Write-Host '    Option B - VS Code Remote Tunnels (requires outbound internet from pod to Microsoft tunnel service):'
 Write-Host "      kubectl exec -n $Namespace deploy/dev-workspace -- code tunnel --accept-server-license-terms"
