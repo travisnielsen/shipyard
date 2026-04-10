@@ -1,0 +1,23 @@
+# LimitRange sets per-container CPU/memory defaults and caps for the namespace.
+# Ensures any container without explicit requests/limits still gets sensible defaults,
+# and prevents a single workspace from exhausting node resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dev-workspace-limits
+  namespace: devcontainers
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: "2Gi"
+      defaultRequest:
+        cpu: "500m"
+        memory: "1Gi"
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      min:
+        cpu: "100m"
+        memory: "128Mi"

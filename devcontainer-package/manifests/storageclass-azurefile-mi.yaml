@@ -1,0 +1,27 @@
+# Per-user Azure Files StorageClass using managed identity auth (preview on AKS).
+# The provision script replaces placeholder values for each workspace.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: devcontainer-azurefile-mi
+provisioner: file.csi.azure.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  resourceGroup: REPLACE_STORAGE_RESOURCE_GROUP
+  storageAccount: REPLACE_STORAGE_ACCOUNT_NAME
+  shareName: REPLACE_SHARE_NAME
+  mountWithManagedIdentity: "true"
+  # Keep this false so no account key is persisted in Kubernetes secrets.
+  storeAccountKey: "false"
+mountOptions:
+  - dir_mode=0755
+  - file_mode=0755
+  - uid=1000
+  - gid=1000
+  - mfsymlinks
+  - cache=strict
+  - nosharesock
+  - actimeo=30
+  - nobrl

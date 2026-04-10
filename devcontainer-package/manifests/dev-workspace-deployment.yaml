@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-workspace
+  namespace: devcontainers
+  labels:
+    app: dev-workspace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-workspace
+  template:
+    metadata:
+      labels:
+        app: dev-workspace
+    spec:
+      containers:
+        - name: dev-workspace
+          image: myacr.azurecr.io/remote-devcontainer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8443
+          env:
+            - name: DEVCONTAINER_PORT
+              value: "8443"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - mountPath: /workspaces
+              name: workspace-storage
+              readOnly: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: workspace-storage
+          persistentVolumeClaim:
+            claimName: dev-workspace-pvc

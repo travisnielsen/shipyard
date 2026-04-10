@@ -1,0 +1,20 @@
+# One namespace per user is the recommended isolation pattern.
+# Rename devcontainers to match the intended user or team scope,
+# e.g. devcontainer-alice or devcontainer-team-platform.
+#
+# Pod Security Admission (PSA) — replaces PodSecurityPolicy (removed in K8s 1.25 / AKS 1.25).
+#   enforce: baseline  — blocks pods that violate the baseline policy at admission time.
+#   warn/audit: restricted — surfaces violations of the stricter restricted profile without
+#                             blocking, so teams can progressively tighten their workloads.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devcontainers
+  labels:
+    workload: remote-devcontainer
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest

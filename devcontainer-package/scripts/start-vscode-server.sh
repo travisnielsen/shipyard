@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PORT="${DEVCONTAINER_PORT:-8443}"
-HOST="${DEVCONTAINER_HOST:-0.0.0.0}"
+# START_MODE controls which runtime mode is launched:
+#   idle    (default) — keep container running for AKS Kubernetes attach workflow
+#   tunnel            — VS Code Remote Tunnels via the 'code' CLI (ACA primary path)
+START_MODE="${START_MODE:-idle}"
 WORKDIR="${DEVCONTAINER_WORKDIR:-/workspaces}"
-PASSWORD="${DEVCONTAINER_PASSWORD:-}"
-
-if [[ -z "${PASSWORD}" ]]; then
-  echo "DEVCONTAINER_PASSWORD is required to start code-server."
-  exit 1
-fi
+TUNNEL_NAME="${TUNNEL_NAME:-}"
 
 mkdir -p "${WORKDIR}"
-export PASSWORD
 
-exec code-server \
-  --bind-addr "${HOST}:${PORT}" \
-  --auth password \
-  --disable-telemetry \
-  --disable-update-check \
-  "${WORKDIR}"
+if [[ "${START_MODE}" == "tunnel" ]]; then
+  echo "Starting VS Code Remote Tunnels (START_MODE=tunnel)..."
+  echo "  Tunnel name : ${TUNNEL_NAME:-<auto-assigned>}"
+  echo "  Workdir     : ${WORKDIR}"
+  echo ""
+  echo "  Once registered, open the printed vscode.dev URL in VS Code"
+  echo "  (Remote - Tunnels extension) or a browser."
+  echo ""
+  TUNNEL_ARGS=(
+    tunnel
+    --accept-server-license-terms
+    --disable-telemetry
+    --log info
+  )
+  [[ -n "${TUNNEL_NAME}" ]] && TUNNEL_ARGS+=(--name "${TUNNEL_NAME}")
+  exec code "${TUNNEL_ARGS[@]}"
+else
+  echo "Starting idle runtime (START_MODE=idle) for Kubernetes attach..."
+  exec tail -f /dev/null
+fi

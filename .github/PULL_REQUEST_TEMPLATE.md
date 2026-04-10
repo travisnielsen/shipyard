@@ -4,7 +4,7 @@ Describe what this PR changes and why.
 
 ## Spec Reference
 
-- Feature spec: <!-- e.g. specs/features/remote-workspace-session-broker.md -->
+- Feature spec: <!-- e.g. specs/001-remote-workspace-session-broker/spec.md -->
 
 ## Validation
 

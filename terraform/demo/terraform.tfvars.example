@@ -1,0 +1,29 @@
+prefix              = "shipyard"
+location            = "eastus2"
+resource_group_name = "rg-shipyard"
+
+vnet_cidr = "10.70.0.0/16"
+
+subnet_cidrs = {
+  infra              = "10.70.0.0/24"
+  aks_nodes          = "10.70.1.0/24"
+  private_endpoints  = "10.70.3.0/24"
+  vdi_integration    = "10.70.4.0/24"
+  dev_vm        = "10.70.5.0/24"
+  bastion            = "10.70.6.0/26"
+}
+
+deploy_test_vm                  = true
+dev_vm_size                = "Standard_D4s_v5"
+dev_vm_admin_username      = "azureuser"
+dev_vm_admin_password      = "ReplaceWithStrongPassword!123"
+
+aks_node_count = 2
+aks_vm_size    = "Standard_D4s_v5"
+
+tags = {
+  environment = "demo"
+  managedBy   = "terraform"
+  workload    = "remote-devcontainer"
+  owner       = "platform-engineering"
+}

@@ -1,0 +1,45 @@
+# Static PersistentVolume backed by an Azure File Share via the azurefile-csi driver.
+#
+# This static manifest is kept for reference only.
+# The default provisioning path uses dynamic PVC provisioning with per-user
+# managed-identity StorageClasses from scripts/provision-workspace.sh.
+#
+# Customise before applying:
+#   - volumeHandle   must be unique across the entire cluster
+#   - shareName      must match an existing Azure File Share
+#   - resourceGroup/storageAccount must point to your Azure Files account
+#   - AKS kubelet identity must have Storage File Data SMB MI Admin on that account
+#   - uid / gid      must match the container user (1000 for the vscode user in this image)
+#   - storage        must match the PVC request below
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: dev-workspace-pv
+  labels:
+    usage: dev-workspace-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: azurefile-csi
+  csi:
+    driver: file.csi.azure.com
+    readOnly: false
+    volumeHandle: dev-workspace-pv  # must be unique in the cluster
+    volumeAttributes:
+      resourceGroup: <storage-resource-group>
+      storageAccount: <storage-account-name>
+      shareName: devcontainers-workspace  # Azure File Share name
+      mountWithManagedIdentity: "true"
+      # Optional: set clientID when using a specific user-assigned managed identity.
+      # clientID: <managed-identity-client-id>
+  mountOptions:
+    - dir_mode=0755
+    - file_mode=0755
+    - uid=1000  # must match ARG USER_UID in the Dockerfile
+    - gid=1000  # must match ARG USER_GID in the Dockerfile
+    - mfsymlinks
+    - cache=strict
+    - nosharesock

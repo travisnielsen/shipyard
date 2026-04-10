@@ -1,0 +1,43 @@
+{
+  "//": [
+    "VS Code attached container configuration for the Kubernetes attach workflow.",
+    "",
+    "How to use:",
+    "  1. In VS Code, install the 'Dev Containers' and 'Kubernetes' extensions.",
+    "  2. Connect kubectl to the AKS cluster.",
+    "  3. Open the Command Palette (F1) and run:",
+    "       'Dev Containers: Attach to Running Kubernetes Container...'",
+    "     OR expand the Kubernetes explorer, right-click your pod, and choose",
+    "       'Attach Visual Studio Code'.",
+    "  4. VS Code Server installs itself inside the pod automatically — no",
+    "     code-server or tunnel required for this workflow.",
+    "  5. To persist this config, copy it to:",
+    "     ~/.config/Code/User/globalStorage/ms-vscode-remote.remote-containers/imageConfigs/<image-name>.json",
+    "",
+    "Note: attached container configs do NOT support the full devcontainer.json spec.",
+    "      See https://code.visualstudio.com/docs/devcontainers/attach-container for",
+    "      the supported property subset."
+  ],
+  "workspaceFolder": "/workspaces",
+  "remoteUser": "vscode",
+  "extensions": [
+    "github.copilot",
+    "github.copilot-chat",
+    "ms-azuretools.vscode-containers",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "ms-vscode.azure-account",
+    "eamodio.gitlens"
+  ],
+  "settings": {
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "files.autoSave": "afterDelay",
+    "editor.formatOnSave": true
+  },
+  "forwardPorts": [8443],
+  "portsAttributes": {
+    "8443": {
+      "label": "code-server (browser fallback)",
+      "onAutoForward": "silent"
+    }
+  }
+}
