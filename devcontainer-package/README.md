@@ -78,6 +78,8 @@ export AKS_RESOURCE_GROUP=<aks-rg>
 export AKS_CLUSTER_NAME=<aks-name>
 ```
 
+Ensure Terraform was deployed with both `workspace_user_group_id` and `workspace_cluster_admin_group_id` set to the correct Entra groups. The helper script `terraform/demo/scripts/create-workspace-group.ps1` can create/reuse each group and print the object ID for the matching Terraform variable.
+
 ### Teardown
 
 ```bash

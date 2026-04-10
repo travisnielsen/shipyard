@@ -43,6 +43,26 @@ output "dev_vm_subnet_id" {
   description = "Subnet ID for the isolated workload VM network segment."
 }
 
+output "workload_nat_gateway_id" {
+  value       = var.enable_nat_gateway ? azurerm_nat_gateway.workload[0].id : null
+  description = "NAT Gateway ID used for outbound internet access from workload subnets."
+}
+
+output "workload_nat_associated_subnet_id" {
+  value       = var.enable_nat_gateway ? try(module.networking.subnets["dev_vm"].resource_id, null) : null
+  description = "Representative subnet ID associated with the workload NAT Gateway."
+}
+
+output "dev_vm_nat_gateway_id" {
+  value       = var.enable_nat_gateway ? azurerm_nat_gateway.workload[0].id : null
+  description = "Deprecated alias for workload_nat_gateway_id."
+}
+
+output "dev_vm_nat_associated_subnet_id" {
+  value       = var.enable_nat_gateway ? try(module.networking.subnets["dev_vm"].resource_id, null) : null
+  description = "Deprecated alias for workload_nat_associated_subnet_id."
+}
+
 output "bastion_name" {
   value       = var.deploy_test_vm ? azurerm_bastion_host.workload[0].name : null
   description = "Name of the Azure Bastion host for private RDP access to the workload VM."

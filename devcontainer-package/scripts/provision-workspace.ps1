@@ -56,6 +56,83 @@ function Invoke-KubectlApplyText {
     }
 }
 
+function Invoke-KubectlJson {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+    $output = & kubectl @Arguments 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($output | Out-String))) {
+        return $null
+    }
+
+    return ($output | Out-String | ConvertFrom-Json)
+}
+
+function Show-WorkspaceDiagnostics {
+    param(
+        [string]$Namespace,
+        [string]$StorageClassName
+    )
+
+    Write-Host "--> Deployment diagnostics for $($Namespace):"
+    & kubectl get pods -n $Namespace -o wide
+    & kubectl get pvc -n $Namespace
+    & kubectl get pv | Select-String $Namespace
+    & kubectl get storageclass $StorageClassName -o yaml
+    & kubectl describe deployment dev-workspace -n $Namespace
+    & kubectl describe pvc dev-workspace-pvc -n $Namespace
+    & kubectl get events -n $Namespace --sort-by=.lastTimestamp
+    Write-Host '--> kube-system Azure File CSI resources:'
+    & kubectl get deployment,daemonset,statefulset -n kube-system | Select-String 'azurefile|csi|file'
+}
+
+function Wait-DeploymentAvailable {
+    param(
+        [string]$Namespace,
+        [string]$DeploymentName,
+        [int]$TimeoutSeconds = 180
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    while ((Get-Date) -lt $deadline) {
+        $deployment = Invoke-KubectlJson @('get', 'deployment', $DeploymentName, '-n', $Namespace, '-o', 'json')
+        if ($null -eq $deployment) {
+            Write-Host "    Waiting for deployment '$DeploymentName' to become readable..."
+            Start-Sleep -Seconds 5
+            continue
+        }
+
+        $desired = 1
+        if ($null -ne $deployment.spec -and $null -ne $deployment.spec.replicas) {
+            $desired = [int]$deployment.spec.replicas
+        }
+
+        $updated = 0
+        if ($null -ne $deployment.status -and $null -ne $deployment.status.updatedReplicas) {
+            $updated = [int]$deployment.status.updatedReplicas
+        }
+
+        $available = 0
+        if ($null -ne $deployment.status -and $null -ne $deployment.status.availableReplicas) {
+            $available = [int]$deployment.status.availableReplicas
+        }
+
+        $ready = 0
+        if ($null -ne $deployment.status -and $null -ne $deployment.status.readyReplicas) {
+            $ready = [int]$deployment.status.readyReplicas
+        }
+
+        Write-Host "    Rollout progress: updated=$updated/$desired ready=$ready/$desired available=$available/$desired"
+
+        if ($updated -ge $desired -and $available -ge $desired -and $ready -ge $desired) {
+            return $true
+        }
+
+        Start-Sleep -Seconds 10
+    }
+
+    return $false
+}
+
 Write-Host "==> Provisioning workspace for '$Username' in namespace '$Namespace'"
 Write-Host "    Storage RG      : $StorageResourceGroup"
 Write-Host "    Storage account : $StorageAccountName"
@@ -66,8 +143,25 @@ Write-Host ''
 Require-Cmd kubectl
 Require-Cmd az
 
-Write-Host '--> Validating AKS managed-identity storage prerequisites...'
+$WorkspaceImage = $env:DEV_WORKSPACE_IMAGE
+if ([string]::IsNullOrWhiteSpace($WorkspaceImage)) {
+    $acrList = Invoke-AzJson @("acr", "list", "--resource-group", $StorageResourceGroup, "-o", "json")
+    if ($null -ne $acrList -and $acrList.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace(($acrList[0].loginServer | Out-String).Trim())) {
+        $WorkspaceImage = "$(($acrList[0].loginServer | Out-String).Trim())/remote-devcontainer:latest"
+    }
+    elseif ($null -ne $acrList -and $acrList.Count -gt 1) {
+        Fail "Multiple ACR registries found in resource group '$StorageResourceGroup'. Set DEV_WORKSPACE_IMAGE explicitly (for example: '<acr-login-server>/remote-devcontainer:latest')."
+    }
+    else {
+        Fail "Could not resolve a workspace image automatically. Set DEV_WORKSPACE_IMAGE (for example: '<acr-login-server>/remote-devcontainer:latest')."
+    }
+}
 
+Write-Host "    Workspace image : $WorkspaceImage"
+
+Write-Host '--> Running preflight validation checks...'
+
+Write-Host "    [1/7] Checking kubectl connectivity..."
 $versionJson = & kubectl version -o json 2>$null
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($versionJson | Out-String))) {
     Fail "Could not detect Kubernetes server version from current kubectl context. Run 'az aks get-credentials --resource-group <aks-rg> --name <aks-name> --overwrite-existing' and retry."
@@ -82,20 +176,41 @@ if ([string]::IsNullOrWhiteSpace($serverMajor) -or [string]::IsNullOrWhiteSpace(
     Fail "Could not detect Kubernetes server version from current kubectl context. Run 'az aks get-credentials --resource-group <aks-rg> --name <aks-name> --overwrite-existing' and retry."
 }
 
+Write-Host "    [2/7] Validating Kubernetes version (found $serverMajor.$serverMinorRaw)..."
 if (([int]$serverMajor -lt 1) -or (([int]$serverMajor -eq 1) -and ([int]$serverMinor -lt 34))) {
     Fail "AKS Kubernetes version $serverMajor.$serverMinorRaw does not meet minimum 1.34 for Azure Files managed identity mount mode."
 }
 
-& kubectl get csidriver file.csi.azure.com -o name *> $null
+Write-Host "    [3/7] Checking Azure Files CSI driver..."
+$csiDriverOutput = & kubectl get csidriver file.csi.azure.com -o name 2>&1
 if ($LASTEXITCODE -ne 0) {
+    $csiDriverErrorText = ($csiDriverOutput | Out-String)
+
+    if ($csiDriverErrorText -match 'Forbidden|cannot get resource "csidrivers"|does not have access to the resource in Azure') {
+        Fail "Current identity does not have permission to read cluster-scoped CSIDriver resources. Assign 'Azure Kubernetes Service Cluster Admin Role' on the AKS cluster scope, then retry."
+    }
+
     Fail 'Azure Files CSI driver (file.csi.azure.com) is not available in the current cluster.'
 }
+
+# Dynamic Azure Files provisioning requires the controller deployment.
+$azureFileController = & kubectl get deployment csi-azurefile-controller -n kube-system -o name 2>&1
+if ($LASTEXITCODE -ne 0) {
+    $controllerError = ($azureFileController | Out-String)
+    if ($controllerError -match 'NotFound|not found') {
+        Fail "Azure File CSI controller deployment is missing (csi-azurefile-controller in kube-system). Dynamic Azure Files provisioning will not work until this AKS addon issue is resolved."
+    }
+
+    Write-Host "WARNING: Could not verify csi-azurefile-controller deployment due to: $controllerError"
+}
+
+Write-Host "    [4/7] Discovering AKS cluster..."
 
 $AksResourceGroup = $env:AKS_RESOURCE_GROUP
 $AksClusterName = $env:AKS_CLUSTER_NAME
 
 if ([string]::IsNullOrWhiteSpace($AksResourceGroup) -or [string]::IsNullOrWhiteSpace($AksClusterName)) {
-    $discovered = Invoke-AzJson aks list -o json
+    $discovered = Invoke-AzJson @("aks", "list", "-o", "json")
     if ($null -eq $discovered -or $discovered.Count -eq 0) {
         Fail 'No AKS clusters were discovered in the current Azure context. Set AKS_RESOURCE_GROUP and AKS_CLUSTER_NAME.'
     }
@@ -112,27 +227,75 @@ if ([string]::IsNullOrWhiteSpace($AksResourceGroup) -or [string]::IsNullOrWhiteS
     $AksClusterName = $discovered[0].name
 }
 
-$kubeletObjectId = & az aks show --resource-group $AksResourceGroup --name $AksClusterName --query "coalesce(identityProfile.kubeletidentity.objectId, identityProfile.kubeletidentity.object_id)" --output tsv 2>$null
-$kubeletObjectId = ($kubeletObjectId | Out-String).Trim()
-if ([string]::IsNullOrWhiteSpace($kubeletObjectId)) {
-    Fail "Could not resolve AKS kubelet identity object ID for $AksResourceGroup/$AksClusterName."
-}
-
+Write-Host "    [5/7] Validating Azure storage account..."
 $storageAccountId = & az storage account show --name $StorageAccountName --resource-group $StorageResourceGroup --query id --output tsv 2>$null
 $storageAccountId = ($storageAccountId | Out-String).Trim()
 if ([string]::IsNullOrWhiteSpace($storageAccountId)) {
     Fail "Could not resolve storage account $StorageAccountName in $StorageResourceGroup."
 }
 
-$roleAssignmentCount = & az role assignment list --scope $storageAccountId --assignee-object-id $kubeletObjectId --role 'Storage File Data SMB MI Admin' --query 'length(@)' --output tsv 2>$null
-$roleAssignmentCount = (($roleAssignmentCount | Out-String).Trim())
-if ([string]::IsNullOrWhiteSpace($roleAssignmentCount)) {
-    $roleAssignmentCount = '0'
+Write-Host "    [6/7] Resolving AKS kubelet identity and validating RBAC..."
+
+$aksCluster = Invoke-AzJson @("aks", "show", "--resource-group", $AksResourceGroup, "--name", $AksClusterName, "-o", "json")
+if ($null -eq $aksCluster) {
+    Fail "Could not query AKS cluster metadata for $AksResourceGroup/$AksClusterName."
 }
 
-if ($roleAssignmentCount -eq '0') {
-    Fail "AKS kubelet identity does not have 'Storage File Data SMB MI Admin' on $StorageAccountName. Assign it before provisioning."
+$kubeletObjectId = $null
+$kubeletIdentityResourceId = $null
+
+if ($null -ne $aksCluster.identityProfile -and $null -ne $aksCluster.identityProfile.kubeletidentity) {
+    $kubeletObjectId = ($aksCluster.identityProfile.kubeletidentity.objectId | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($kubeletObjectId)) {
+        $kubeletObjectId = ($aksCluster.identityProfile.kubeletidentity.object_id | Out-String).Trim()
+    }
+
+    $kubeletIdentityResourceId = ($aksCluster.identityProfile.kubeletidentity.resourceId | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($kubeletIdentityResourceId)) {
+        $kubeletIdentityResourceId = ($aksCluster.identityProfile.kubeletidentity.resource_id | Out-String).Trim()
+    }
 }
+
+if ([string]::IsNullOrWhiteSpace($kubeletObjectId) -and -not [string]::IsNullOrWhiteSpace($kubeletIdentityResourceId)) {
+    $kubeletIdentity = Invoke-AzJson @("identity", "show", "--ids", $kubeletIdentityResourceId, "-o", "json")
+    if ($null -ne $kubeletIdentity) {
+        $kubeletObjectId = ($kubeletIdentity.principalId | Out-String).Trim()
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($kubeletObjectId)) {
+    Fail "Could not resolve AKS kubelet identity object ID for $AksResourceGroup/$AksClusterName. Ensure the cluster has a kubelet identity and that your identity can read it."
+}
+
+# Validate all three required RBAC roles
+$requiredRoles = @('Storage File Data SMB MI Admin', 'Storage Account Contributor', 'Storage File Data SMB Share Contributor')
+$missingRoles = @()
+
+foreach ($role in $requiredRoles) {
+    $roleAssignmentCount = & az role assignment list --scope $storageAccountId --assignee-object-id $kubeletObjectId --role $role --query 'length(@)' --output tsv 2>$null
+    $roleAssignmentCount = (($roleAssignmentCount | Out-String).Trim())
+    if ([string]::IsNullOrWhiteSpace($roleAssignmentCount)) {
+        $roleAssignmentCount = '0'
+    }
+
+    if ($roleAssignmentCount -eq '0') {
+        $missingRoles += $role
+    }
+}
+
+if ($missingRoles.Count -gt 0) {
+    $missingRolesList = $missingRoles -join ', '
+    Fail "AKS kubelet identity is missing required RBAC roles on $StorageAccountName : [$missingRolesList]. Assign these roles before provisioning."
+}
+
+Write-Host "    [7/7] Checking namespace availability..."
+$existingNamespace = & kubectl get namespace $Namespace -o name 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "    WARNING: Namespace '$Namespace' already exists. Proceeding with provisioning."
+}
+
+Write-Host 'Preflight validation complete.'
+Write-Host ''
 
 Write-Host "--> Creating namespace $Namespace..."
 & kubectl create namespace $Namespace --dry-run=client -o yaml | & kubectl apply -f -
@@ -141,15 +304,47 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "--> Enabling SMB OAuth on storage account '$StorageAccountName'..."
-& az storage account update --name $StorageAccountName --resource-group $StorageResourceGroup --enable-smb-oauth true --output none
+& az storage account update --name $StorageAccountName --resource-group $StorageResourceGroup --enable-smb-oauth true --min-tls-version TLS1_2 --output none
 if ($LASTEXITCODE -ne 0) {
     Fail 'Failed to enable SMB OAuth on the storage account.'
 }
 
-$smbOAuthEnabled = & az storage account show --name $StorageAccountName --resource-group $StorageResourceGroup --query enableSmbOauth --output tsv 2>$null
-$smbOAuthEnabled = (($smbOAuthEnabled | Out-String).Trim())
-if ($smbOAuthEnabled -ne 'true') {
+$smbOAuthEnabled = $false
+$smbOAuthStateKnown = $false
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+    $storageAccountState = Invoke-AzJson @("storage", "account", "show", "--name", $StorageAccountName, "--resource-group", $StorageResourceGroup, "-o", "json")
+    if ($null -ne $storageAccountState) {
+        $candidateValues = @(
+            $storageAccountState.enableSmbOAuth,
+            $storageAccountState.enableSmbOauth,
+            $storageAccountState.isSmbOAuthEnabled
+        )
+
+        foreach ($candidate in $candidateValues) {
+            if ($null -ne $candidate -and -not [string]::IsNullOrWhiteSpace(($candidate | Out-String).Trim())) {
+                $smbOAuthStateKnown = $true
+                $candidateText = (($candidate | Out-String).Trim()).ToLowerInvariant()
+                if ($candidateText -eq 'true') {
+                    $smbOAuthEnabled = $true
+                    break
+                }
+            }
+        }
+
+        if ($smbOAuthEnabled) {
+            break
+        }
+    }
+
+    Start-Sleep -Seconds 2
+}
+
+if (-not $smbOAuthEnabled -and $smbOAuthStateKnown) {
     Fail 'Storage account SMB OAuth is not enabled after update call.'
+}
+
+if (-not $smbOAuthEnabled -and -not $smbOAuthStateKnown) {
+    Write-Host "WARNING: Could not verify SMB OAuth state from Azure API response shape. Continuing with provisioning."
 }
 
 Write-Host "--> Creating StorageClass $StorageClassName..."
@@ -176,7 +371,14 @@ Invoke-KubectlApplyText $pvcContent
 
 Write-Host "--> Deploying dev-workspace in $Namespace..."
 $deploymentContent = (Get-Content (Join-Path $ManifestsDir 'dev-workspace-deployment.yaml') -Raw).Replace('namespace: devcontainers', "namespace: $Namespace")
+$deploymentContent = $deploymentContent.Replace('image: myacr.azurecr.io/remote-devcontainer:latest', "image: $WorkspaceImage")
 Invoke-KubectlApplyText $deploymentContent
+
+Write-Host "--> Waiting for deployment rollout in $Namespace..."
+if (-not (Wait-DeploymentAvailable -Namespace $Namespace -DeploymentName 'dev-workspace' -TimeoutSeconds 240)) {
+    Show-WorkspaceDiagnostics -Namespace $Namespace -StorageClassName $StorageClassName
+    Fail 'dev-workspace deployment did not become ready within timeout. See diagnostics above.'
+}
 
 Write-Host ''
 Write-Host '==> Done. To connect:'

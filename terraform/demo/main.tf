@@ -19,6 +19,21 @@ resource "random_string" "alpha_prefix" {
   numeric = false
 }
 
+moved {
+  from = azurerm_public_ip.dev_vm_nat
+  to   = azurerm_public_ip.workload_nat
+}
+
+moved {
+  from = azurerm_nat_gateway.dev_vm
+  to   = azurerm_nat_gateway.workload
+}
+
+moved {
+  from = azurerm_nat_gateway_public_ip_association.dev_vm
+  to   = azurerm_nat_gateway_public_ip_association.workload
+}
+
 module "networking" {
   source  = "Azure/avm-res-network-virtualnetwork/azurerm"
   version = "0.17.1"
@@ -37,6 +52,7 @@ module "networking" {
     aks_nodes = {
       name             = "snet-${var.prefix}-aks"
       address_prefixes = [var.subnet_cidrs.aks_nodes]
+      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
     }
     private_endpoints = {
       name                              = "snet-${var.prefix}-pep"
@@ -50,6 +66,7 @@ module "networking" {
     dev_vm = {
       name             = "snet-${var.prefix}-vm"
       address_prefixes = [var.subnet_cidrs.dev_vm]
+      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
     }
     bastion = {
       name             = "AzureBastionSubnet"
@@ -59,8 +76,8 @@ module "networking" {
 }
 
 # Explicit outbound egress for isolated VM subnet.
-resource "azurerm_public_ip" "dev_vm_nat" {
-  count = var.deploy_test_vm ? 1 : 0
+resource "azurerm_public_ip" "workload_nat" {
+  count = var.enable_nat_gateway ? 1 : 0
 
   name                = "pip-${var.prefix}-vm-nat"
   location            = var.location
@@ -70,8 +87,8 @@ resource "azurerm_public_ip" "dev_vm_nat" {
   tags                = var.tags
 }
 
-resource "azurerm_nat_gateway" "dev_vm" {
-  count = var.deploy_test_vm ? 1 : 0
+resource "azurerm_nat_gateway" "workload" {
+  count = var.enable_nat_gateway ? 1 : 0
 
   name                = "nat-${var.prefix}-vm"
   location            = var.location
@@ -80,18 +97,11 @@ resource "azurerm_nat_gateway" "dev_vm" {
   tags                = var.tags
 }
 
-resource "azurerm_nat_gateway_public_ip_association" "dev_vm" {
-  count = var.deploy_test_vm ? 1 : 0
+resource "azurerm_nat_gateway_public_ip_association" "workload" {
+  count = var.enable_nat_gateway ? 1 : 0
 
-  nat_gateway_id       = azurerm_nat_gateway.dev_vm[0].id
-  public_ip_address_id = azurerm_public_ip.dev_vm_nat[0].id
-}
-
-resource "azurerm_subnet_nat_gateway_association" "dev_vm" {
-  count = var.deploy_test_vm ? 1 : 0
-
-  subnet_id      = module.networking.subnets["dev_vm"].resource_id
-  nat_gateway_id = azurerm_nat_gateway.dev_vm[0].id
+  nat_gateway_id       = azurerm_nat_gateway.workload[0].id
+  public_ip_address_id = azurerm_public_ip.workload_nat[0].id
 }
 
 resource "azurerm_network_interface" "dev_vm" {
@@ -357,9 +367,29 @@ module "aks" {
     name           = "system"
     vm_size        = var.aks_vm_size
     count_of       = var.aks_node_count
+    mode           = "System"
     vnet_subnet_id = module.networking.subnets["aks_nodes"].resource_id
     type           = "VirtualMachineScaleSets"
   }
+
+  agent_pools = var.aks_user_pool_enabled ? {
+    user = {
+      name                = "user"
+      vm_size             = var.aks_user_pool_vm_size
+      mode                = "User"
+      type                = "VirtualMachineScaleSets"
+      enable_auto_scaling = true
+      min_count           = var.aks_user_pool_min_count
+      max_count           = var.aks_user_pool_max_count
+      vnet_subnet_id      = module.networking.subnets["aks_nodes"].resource_id
+      node_labels = {
+        workload = "devworkspace"
+      }
+      node_taints = [
+        "workload=devworkspace:NoSchedule"
+      ]
+    }
+  } : {}
 
   network_profile = {
     network_plugin = "azure"
@@ -378,6 +408,21 @@ module "aks" {
 
   security_profile = {
     workload_identity = {
+      enabled = true
+    }
+  }
+
+  storage_profile = {
+    blob_csi_driver = {
+      enabled = false
+    }
+    disk_csi_driver = {
+      enabled = true
+    }
+    file_csi_driver = {
+      enabled = true
+    }
+    snapshot_controller = {
       enabled = true
     }
   }
@@ -401,6 +446,31 @@ resource "azurerm_role_assignment" "aks_storage_file_mi_admin" {
 
   scope                = azurerm_storage_account.this.id
   role_definition_name = "Storage File Data SMB MI Admin"
+  principal_id = coalesce(
+    try(module.aks[0].kubelet_identity.object_id, null),
+    try(module.aks[0].kubelet_identity.objectId, null)
+  )
+}
+
+# Required for dynamic Azure Files share lifecycle operations (create/read/delete)
+# performed by the CSI provisioner against the storage account ARM resource.
+resource "azurerm_role_assignment" "aks_storage_account_contributor" {
+  count = local.deploy_aks ? 1 : 0
+
+  scope                = azurerm_storage_account.this.id
+  role_definition_name = "Storage Account Contributor"
+  principal_id = coalesce(
+    try(module.aks[0].kubelet_identity.object_id, null),
+    try(module.aks[0].kubelet_identity.objectId, null)
+  )
+}
+
+# Required for SMB OAuth data-path access to the provisioned file share.
+resource "azurerm_role_assignment" "aks_storage_file_share_contributor" {
+  count = local.deploy_aks ? 1 : 0
+
+  scope                = azurerm_storage_account.this.id
+  role_definition_name = "Storage File Data SMB Share Contributor"
   principal_id = coalesce(
     try(module.aks[0].kubelet_identity.object_id, null),
     try(module.aks[0].kubelet_identity.objectId, null)
@@ -435,28 +505,36 @@ resource "azurerm_role_assignment" "current_principal_acr_push" {
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-resource "azurerm_role_assignment" "dev_group_aks_user" {
-  count = local.deploy_aks && var.dev_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_user_aks_user" {
+  count = local.deploy_aks && var.workspace_user_group_id != null ? 1 : 0
 
   scope                = module.aks[0].resource_id
   role_definition_name = "Azure Kubernetes Service Cluster User Role"
-  principal_id         = var.dev_group_id
+  principal_id         = var.workspace_user_group_id
 }
 
-resource "azurerm_role_assignment" "dev_group_acr_pull" {
-  count = var.dev_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_cluster_admin_aks_cluster_admin" {
+  count = local.deploy_aks && var.workspace_cluster_admin_group_id != null ? 1 : 0
+
+  scope                = module.aks[0].resource_id
+  role_definition_name = "Azure Kubernetes Service Cluster Admin Role"
+  principal_id         = var.workspace_cluster_admin_group_id
+}
+
+resource "azurerm_role_assignment" "workspace_user_acr_pull" {
+  count = var.workspace_user_group_id != null ? 1 : 0
 
   scope                = module.container_registry.resource_id
   role_definition_name = "AcrPull"
-  principal_id         = var.dev_group_id
+  principal_id         = var.workspace_user_group_id
 }
 
-resource "azurerm_role_assignment" "dev_group_storage_file_contributor" {
-  count = var.dev_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_user_storage_file_contributor" {
+  count = var.workspace_user_group_id != null ? 1 : 0
 
   scope                = azurerm_storage_account.this.id
   role_definition_name = "Storage File Data SMB Share Contributor"
-  principal_id         = var.dev_group_id
+  principal_id         = var.workspace_user_group_id
 }
 
 

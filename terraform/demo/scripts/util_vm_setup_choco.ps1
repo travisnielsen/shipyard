@@ -22,7 +22,7 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";
 # Install software using Chocolatey
 choco install powershell-core -y
 choco install azure-cli -y
-choco install azure-functions-core-tools -y
+# choco install azure-functions-core-tools -y
 choco install git -y
 choco install vscode -y
 choco install python313 -y

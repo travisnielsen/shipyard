@@ -44,7 +44,17 @@ Minimum values to review in `terraform.tfvars`:
 - `location`
 - `resource_group_name`
 - `dev_vm_admin_password`
+- `workspace_user_group_id`
+- `workspace_cluster_admin_group_id`
 - `subnet_cidrs` (if custom network ranges are required)
+
+Create (or reuse) the Entra groups used for workspace access and provisioning and copy the printed object IDs into `terraform/demo/terraform.tfvars`:
+
+```powershell
+cd terraform/demo
+./scripts/create-workspace-group.ps1 "shipyard-workspace-users" "" "workspace-user"
+./scripts/create-workspace-group.ps1 "shipyard-workspace-cluster-admins" "" "workspace-cluster-admin"
+```
 
 ## 3. Deploy Shared Infrastructure
 
@@ -127,6 +137,10 @@ cd devcontainer-package
 ```
 
 This script enforces fail-fast checks (AKS version, CSI driver, required RBAC role).
+
+`workspace_user_group_id` receives AKS Cluster User + AcrPull + Storage File Data SMB Share Contributor.
+
+`workspace_cluster_admin_group_id` receives AKS Cluster Admin Role for cluster-scoped provisioning operations.
 
 ### 5.3 Connect to Workspace
 

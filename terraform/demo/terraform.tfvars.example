@@ -1,5 +1,5 @@
 prefix              = "shipyard"
-location            = "eastus2"
+location            = "centralus"
 resource_group_name = "rg-shipyard"
 
 vnet_cidr = "10.70.0.0/16"
@@ -14,12 +14,23 @@ subnet_cidrs = {
 }
 
 deploy_test_vm                  = true
-dev_vm_size                = "Standard_D4s_v5"
+enable_nat_gateway              = true
+dev_vm_size                = "Standard_D2as_v5"
 dev_vm_admin_username      = "azureuser"
 dev_vm_admin_password      = "ReplaceWithStrongPassword!123"
 
 aks_node_count = 2
-aks_vm_size    = "Standard_D4s_v5"
+aks_vm_size    = "Standard_D2as_v5"
+aks_user_pool_enabled   = true
+aks_user_pool_vm_size   = "Standard_D2as_v5"
+aks_user_pool_min_count = 1
+aks_user_pool_max_count = 3
+
+# Entra group object ID for workspace users (AKS Cluster User + AcrPull + Storage File Data SMB Share Contributor).
+workspace_user_group_id = "00000000-0000-0000-0000-000000000000"
+
+# Entra group object ID for workspace provisioning operators (AKS Cluster Admin Role).
+workspace_cluster_admin_group_id = "00000000-0000-0000-0000-000000000000"
 
 tags = {
   environment = "demo"

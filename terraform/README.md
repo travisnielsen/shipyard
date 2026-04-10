@@ -45,6 +45,13 @@ terraform plan -out demo.tfplan
 terraform apply -auto-approve demo.tfplan
 ```
 
+Before `terraform plan`, create (or resolve) the Entra groups used for workspace access and provisioning, then copy the printed object IDs into `terraform.tfvars`:
+
+```powershell
+./scripts/create-workspace-group.ps1 "shipyard-workspace-users" "" "workspace-user"
+./scripts/create-workspace-group.ps1 "shipyard-workspace-cluster-admins" "" "workspace-cluster-admin"
+```
+
 ## Security Defaults
 
 - Public network access disabled where supported.

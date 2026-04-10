@@ -15,6 +15,13 @@ spec:
       labels:
         app: dev-workspace
     spec:
+      nodeSelector:
+        workload: devworkspace
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: devworkspace
+          effect: NoSchedule
       containers:
         - name: dev-workspace
           image: myacr.azurecr.io/remote-devcontainer:latest
