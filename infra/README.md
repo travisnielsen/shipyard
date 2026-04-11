@@ -65,6 +65,6 @@ Before `terraform plan`, create (or resolve) the Entra groups used for workspace
 
 - VM provisioning is controlled by `deploy_test_vm` (default `true`).
 - Post-provision software install is executed by `azurerm_virtual_machine_extension` (`CustomScript`).
-- Bootstrap script path: `terraform/demo/scripts/util_vm_setup_choco.ps1`.
+- Bootstrap script path: `infra/demo/scripts/util_vm_setup_choco.ps1`.
 - Required variable: `dev_vm_admin_password`.
 - Connect using Azure Bastion (RDP over TLS) to avoid exposing VM public IP.

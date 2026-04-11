@@ -23,17 +23,17 @@ jobs:
 
           echo "Checking for forbidden password-based workspace auth patterns..."
 
-          if rg -n --hidden --glob '!**/.git/**' 'DEVCONTAINER_PASSWORD' devcontainer-package terraform; then
+          if rg -n --hidden --glob '!**/.git/**' 'DEVCONTAINER_PASSWORD' devcontainer infra; then
             echo "ERROR: DEVCONTAINER_PASSWORD references are forbidden."
             exit 1
           fi
 
-          if rg -n --hidden --glob '!**/.git/**' -- '--auth[[:space:]]+password' devcontainer-package terraform; then
+          if rg -n --hidden --glob '!**/.git/**' -- '--auth[[:space:]]+password' devcontainer infra; then
             echo "ERROR: Password auth mode references are forbidden."
             exit 1
           fi
 
-          if rg -n --hidden --glob '!**/.git/**' 'code-server.*--auth' devcontainer-package terraform; then
+          if rg -n --hidden --glob '!**/.git/**' 'code-server.*--auth' devcontainer infra; then
             echo "ERROR: code-server auth flags were detected; workspace auth must remain identity-based."
             exit 1
           fi
@@ -42,14 +42,14 @@ jobs:
 
           KEY_RETRIEVAL_MATCHES="$(rg -n --hidden --glob '!**/.git/**' \
             'az[[:space:]]+storage[[:space:]]+account[[:space:]]+keys[[:space:]]+list' \
-            devcontainer-package terraform .github || true)"
+            devcontainer infra .github || true)"
 
           if [[ -n "${KEY_RETRIEVAL_MATCHES}" ]]; then
             DISALLOWED_MATCHES="$(printf '%s\n' "${KEY_RETRIEVAL_MATCHES}" | \
-              rg -v '^devcontainer-package/scripts/provision-workspace-aca\.sh:' || true)"
+              rg -v '^devcontainer/scripts/provision-workspace-aca\.sh:' || true)"
 
             if [[ -n "${DISALLOWED_MATCHES}" ]]; then
-              echo "ERROR: Storage key retrieval command is only allowed in devcontainer-package/scripts/provision-workspace-aca.sh"
+              echo "ERROR: Storage key retrieval command is only allowed in devcontainer/scripts/provision-workspace-aca.sh"
               echo "Disallowed occurrences:"
               printf '%s\n' "${DISALLOWED_MATCHES}"
               exit 1

@@ -8,8 +8,8 @@ This repository bootstraps a platform for hosting remote development containers 
 
 The scaffold includes two core parts:
 
-1. `devcontainer-package/`: image and runtime assets for a remote dev workspace (including VS Code server bootstrap). See the [Devcontainer Package README](devcontainer-package/README.md) for platform topology, connection options, and provisioning scripts.
-2. `terraform/`: demo topology implemented in Terraform with private networking and enterprise-oriented controls.
+1. `devcontainer/`: image and runtime assets for a remote dev workspace (including VS Code server bootstrap). See the [Devcontainer Package README](devcontainer/README.md) for platform topology, connection options, and provisioning scripts.
+2. `infra/`: demo topology implemented in Terraform with private networking and enterprise-oriented controls.
 
 For step-by-step deployment and operations instructions, see the [Deployment Runbook](docs/DEPLOYMENT_RUNBOOK.md).
 
@@ -17,11 +17,11 @@ For step-by-step deployment and operations instructions, see the [Deployment Run
 
 ```text
 .
-|- devcontainer-package/
+|- devcontainer/
 |  |- Dockerfile
 |  |- manifests/
 |  |- scripts/
-|- terraform/
+|- infra/
 |  |- demo/
 |- .specify/
 |  |- templates/

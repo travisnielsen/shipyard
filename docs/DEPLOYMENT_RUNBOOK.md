@@ -6,15 +6,15 @@ This document is a generic, step-by-step reference pattern for deploying and ope
 
 It assumes this repository layout:
 
-- `terraform/demo` for shared platform infrastructure
-- `devcontainer-package` for image build and per-user provisioning scripts
+- `infra/demo` for shared platform infrastructure
+- `devcontainer` for image build and per-user provisioning scripts
 
 ## 1. Prerequisites
 
 Install and configure the following tools:
 
 - Azure CLI (`az`)
-- Terraform (compatible with `terraform/demo/versions.tf`)
+- Terraform (compatible with `infra/demo/versions.tf`)
 - Docker
 - `kubectl` (for AKS workflow)
 
@@ -34,7 +34,7 @@ az account set --subscription "<subscription-id>"
 3. Edit values for your environment.
 
 ```bash
-cd terraform/demo
+cd infra/demo
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -48,17 +48,17 @@ Minimum values to review in `terraform.tfvars`:
 - `workspace_cluster_admin_group_id`
 - `subnet_cidrs` (if custom network ranges are required)
 
-Create (or reuse) the Entra groups used for workspace access and provisioning and copy the printed object IDs into `terraform/demo/terraform.tfvars`:
+Create (or reuse) the Entra groups used for workspace access and provisioning and copy the printed object IDs into `infra/demo/terraform.tfvars`:
 
 ```powershell
-cd terraform/demo
+cd infra/demo
 ./scripts/create-workspace-group.ps1 "shipyard-workspace-users" "" "workspace-user"
 ./scripts/create-workspace-group.ps1 "shipyard-workspace-cluster-admins" "" "workspace-cluster-admin"
 ```
 
 ## 3. Deploy Shared Infrastructure
 
-From `terraform/demo`:
+From `infra/demo`:
 
 ```bash
 terraform init
@@ -94,7 +94,7 @@ az acr build \
   --registry "<acr-name>" \
   --image "remote-devcontainer:latest" \
   --platform linux/amd64 \
-  ./devcontainer-package
+  ./devcontainer
 ```
 
 If you need a manual RBAC grant for the current user:
@@ -132,7 +132,7 @@ export AKS_CLUSTER_NAME="<aks-name>"
 ### 5.2 Provision a User Workspace
 
 ```bash
-cd devcontainer-package
+cd devcontainer
 ./scripts/provision-workspace.sh "<username>" "<storage-account-rg>" "<storage-account-name>"
 ```
 
@@ -169,7 +169,7 @@ The Dev Containers extension discovers pods from the current kubectl namespace. 
 ### 7.1 Remove a User Workspace
 
 ```bash
-cd devcontainer-package
+cd devcontainer
 ./scripts/deprovision-workspace.sh "<username>" "<storage-account-name>"
 ```
 
@@ -182,7 +182,7 @@ Delete user data as well:
 ### 7.2 Destroy Shared Infrastructure
 
 ```bash
-cd terraform/demo
+cd infra/demo
 terraform destroy
 ```
 
@@ -200,7 +200,7 @@ terraform destroy
 
 ## 9. Reference Files
 
-- Terraform stack: `terraform/demo`
-- Devcontainer package: `devcontainer-package`
-- AKS provision script: `devcontainer-package/scripts/provision-workspace.sh`
-- AKS teardown script: `devcontainer-package/scripts/deprovision-workspace.sh`
+- Terraform stack: `infra/demo`
+- Devcontainer package: `devcontainer`
+- AKS provision script: `devcontainer/scripts/provision-workspace.sh`
+- AKS teardown script: `devcontainer/scripts/deprovision-workspace.sh`
