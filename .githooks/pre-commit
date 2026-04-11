@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# pre-commit: Enforces local Terraform standards for infra changes.
+# Runs only when staged files include Terraform under infra/.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+if ! command -v terraform >/dev/null 2>&1; then
+  echo ""
+  echo "ERROR: Terraform is required for local IaC enforcement hooks."
+  echo "Install Terraform and retry."
+  echo ""
+  exit 1
+fi
+
+STAGED_TERRAFORM_FILES="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^infra/.*\.(tf|tfvars)$' || true)"
+
+if [[ -z "$STAGED_TERRAFORM_FILES" ]]; then
+  exit 0
+fi
+
+echo "Running Terraform checks for staged infra changes..."
+
+# Keep formatting normalized across all IaC files.
+if ! terraform -chdir=infra/demo fmt -check -recursive -no-color; then
+  echo ""
+  echo "ERROR: Terraform formatting check failed."
+  echo "Run: terraform -chdir=infra/demo fmt -recursive"
+  echo ""
+  exit 1
+fi
+
+# Validate configuration in local mode (no backend access required).
+if ! terraform -chdir=infra/demo init -backend=false -input=false -no-color >/dev/null; then
+  echo ""
+  echo "ERROR: Terraform init failed (backend disabled mode)."
+  echo ""
+  exit 1
+fi
+
+if ! terraform -chdir=infra/demo validate -no-color; then
+  echo ""
+  echo "ERROR: Terraform validate failed."
+  echo ""
+  exit 1
+fi
+
+if command -v tflint >/dev/null 2>&1; then
+  echo "Running tflint..."
+  if ! tflint --chdir=infra/demo --format compact; then
+    echo ""
+    echo "ERROR: tflint found issues."
+    echo ""
+    exit 1
+  fi
+else
+  echo "tflint not found: skipping lint (recommended: install tflint)."
+fi
+
+echo "Terraform pre-commit checks passed."
+exit 0
