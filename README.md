@@ -31,6 +31,21 @@ For step-by-step deployment and operations instructions, see the [Deployment Run
 |  |- PULL_REQUEST_TEMPLATE.md
 ```
 
+## Getting Started
+
+After cloning, activate the repo's Git hooks (enforces commit message format and protects `main`/`master` client-side):
+
+```bash
+bash .githooks/setup-hooks.sh
+```
+
+When Terraform files under `infra/` are staged, the `pre-commit` hook runs:
+
+- `terraform fmt -check -recursive`
+- `terraform init -backend=false`
+- `terraform validate`
+- `tflint` (if installed)
+
 ## Notes
 
 - This is a scaffold intended for iteration, not a production-ready deployment.

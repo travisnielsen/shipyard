@@ -1,50 +1,111 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+Version: N/A → 1.0.0 (initial ratification)
+Modified Principles: N/A (initial creation)
+Added Sections:
+  - Core Principles (6 principles)
+  - Security Requirements
+  - Automation Standards
+  - Governance
+Removed Sections: N/A
+Templates:
+  - .specify/templates/plan-template.md ✅ (Constitution Check gate already present)
+  - .specify/templates/spec-template.md ✅ (no amendment required)
+  - .specify/templates/tasks-template.md ✅ (no amendment required)
+Deferred TODOs: None
+-->
+
+# Shipyard Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Infrastructure-as-Code First
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+All infrastructure MUST be defined in code (Terraform or Bicep). Manual resource creation in shared or
+production environments is forbidden. Every resource change MUST be traceable to a version-controlled
+commit. Local experimentation in isolated subscriptions is permitted but MUST NOT be promoted to shared
+environments without a corresponding IaC change.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Private-by-Default Networking
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+All Azure resources MUST default to private endpoints with public network access disabled. Exceptions
+require explicit justification in the feature specification and MUST be approved via PR review.
+Default allow-all network policies are forbidden. DNS resolution for private endpoints MUST use Private
+DNS Zones managed within the platform.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Identity-Based Access
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Workspace authentication MUST use Entra ID managed identities or user identity federation.
+Password-based authentication (including `code-server --auth password` and `DEVCONTAINER_PASSWORD`) is
+forbidden in all shared environments. Service-to-service access MUST use managed identities with RBAC
+role assignments; connection strings and shared keys MUST NOT be used except where no managed identity
+alternative exists (in which case credentials MUST be stored in Key Vault).
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Immutable Workspaces
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+User workspace containers MUST be ephemeral and stateless. Container images MUST be rebuilt from source
+on every provisioning cycle; in-place mutations to running containers are forbidden in shared
+environments. All persistent state MUST reside in dedicated, externally mounted storage volumes.
+Workspace deprovisioning MUST be fully scriptable and MUST NOT leave orphaned resources.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Least-Privilege
+
+All service principals, managed identities, and Entra group role assignments MUST follow the
+least-privilege principle. Owner or Contributor role assignments at subscription scope are forbidden.
+Role assignments MUST be scoped to the minimum required resource group or individual resource.
+Privileged roles (e.g., Key Vault Administrator, AKS Cluster Admin) MUST be granted only to named
+Entra groups, not to individual user accounts.
+
+### VI. Simplicity
+
+Prefer managed Azure services over self-hosted components when the security posture is equivalent or
+better. Avoid custom automation where a first-party feature covers the requirement. New dependencies
+(Helm charts, Terraform modules, scripts) MUST be justified by a concrete requirement; speculative or
+convenience additions are forbidden.
+
+## Security Requirements
+
+- Secrets MUST be stored in Azure Key Vault. Hardcoded credentials in IaC, scripts, or container
+  images are forbidden.
+- Container images MUST be sourced from the platform's private Azure Container Registry. Public
+  registry pulls in production workloads are forbidden.
+- All CI/CD pipelines MUST use OIDC federated identity for Azure authentication. Long-lived service
+  principal secrets stored as pipeline secrets are forbidden.
+- Security guardrail scans (pattern-based checks for forbidden auth patterns and credential leakage)
+  MUST pass on every pull request before merge.
+- AKS node pools MUST enable Microsoft Defender for Containers and enforce pod security standards at
+  the `restricted` profile unless a documented exception is approved.
+
+## Automation Standards
+
+- All provisioning and deprovisioning operations MUST be implemented as idempotent scripts
+  (shell or PowerShell).
+- CI/CD workflows MUST run `terraform validate` and `terraform plan` on every pull request that
+  modifies `infra/`.
+- Destructive operations (workspace teardown, infrastructure destroy) MUST require explicit
+  confirmation flags and MUST NOT execute silently.
+- Terraform modules MUST be pinned to exact versions. Floating version constraints are forbidden.
+- Helm chart and Kubernetes manifest changes MUST pass `kubectl --dry-run=server` validation in CI.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other documented practices within the Shipyard repository. Conflicts
+between this document and other guides MUST be resolved in favour of the constitution.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Amendment procedure**: Amendments MUST be proposed via pull request with a description of the
+change and rationale. Amendments that affect security principles or networking defaults MUST receive
+at least one approving review from a platform maintainer before merge.
+
+**Versioning policy**:
+- MAJOR: Removal or backward-incompatible redefinition of an existing principle.
+- MINOR: Addition of a new principle or section, or material expansion of existing guidance.
+- PATCH: Clarifications, wording improvements, or non-semantic refinements.
+
+**Compliance**: All feature implementation plans MUST complete the Constitution Check gate in
+`plan-template.md` before proceeding to Phase 1. Violations discovered in review MUST be resolved
+before merge.
+
+**Review cadence**: The constitution SHOULD be reviewed at least once per quarter to reflect changes
+in platform scope or Azure service capabilities.
+
+**Version**: 1.0.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-11

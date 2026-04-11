@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# commit-msg: Enforces Conventional Commits format.
+# Allowed prefixes: feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert
+#
+# Valid examples:
+#   feat: add ARC runner set for GitHub Actions
+#   fix(infra): correct subnet CIDR overlap
+#   docs!: rewrite deployment runbook
+#   chore(deps): pin Terraform AVM modules to exact versions
+
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG="$(cat "$COMMIT_MSG_FILE")"
+
+# Ignore merge commits, fixup/squash commits, and empty messages
+if echo "$COMMIT_MSG" | grep -qE '^(Merge |fixup! |squash! |Revert ")'; then
+  exit 0
+fi
+
+PATTERN='^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([a-z0-9/_-]+\))?(!)?: .{1,100}$'
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+  echo ""
+  echo "❌  Commit message does not follow Conventional Commits format."
+  echo ""
+  echo "    Expected: <type>[(<scope>)][!]: <description>"
+  echo ""
+  echo "    Allowed types:"
+  echo "      feat     – new feature or capability"
+  echo "      fix      – bug fix"
+  echo "      docs     – documentation only"
+  echo "      style    – formatting, whitespace (no logic change)"
+  echo "      refactor – code restructure, no feature or fix"
+  echo "      perf     – performance improvement"
+  echo "      test     – add or fix tests"
+  echo "      chore    – build process, tooling, dependencies"
+  echo "      ci       – CI/CD pipeline changes"
+  echo "      build    – build system or external dependency changes"
+  echo "      revert   – revert a previous commit"
+  echo ""
+  echo "    Examples:"
+  echo "      feat: add ARC runner set for GitHub Actions"
+  echo "      fix(infra): correct subnet CIDR overlap"
+  echo "      docs!: rewrite deployment runbook (breaking change)"
+  echo "      chore(deps): pin Terraform AVM modules to exact versions"
+  echo ""
+  echo "    Your message: $COMMIT_MSG"
+  echo ""
+  exit 1
+fi
+
+exit 0
