@@ -46,7 +46,8 @@ jobs:
         run: |
           set -euo pipefail
           ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
-          az acr login --name "$ACR_NAME"
+          ACR_TOKEN=$(az acr login --name "$ACR_NAME" --expose-token --query accessToken -o tsv)
+          echo "$ACR_TOKEN" | docker login -u 00000000-0000-0000-0000-000000000000 --password-stdin "$ACR_LOGIN_SERVER"
 
       - name: Build image
         run: |
