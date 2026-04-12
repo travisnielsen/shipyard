@@ -8,3 +8,4 @@ crash.log
 *.log
 *.pid
 .DS_Store
+*.pem
