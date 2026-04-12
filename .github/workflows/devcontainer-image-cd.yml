@@ -1,5 +1,6 @@
 name: devcontainer-image-cd
 on:
+  workflow_dispatch:
   push:
     paths:
       - devcontainer/**
