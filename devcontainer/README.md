@@ -19,6 +19,7 @@ This folder contains a deployable package for remote development workspaces — 
 Build in Azure Container Registry to guarantee a Linux amd64 image regardless of local machine architecture:
 
 Prerequisites:
+
 - Your identity (or group) has `AcrPush` on the registry.
 - Registry allows trusted Azure services for ACR Tasks (`network_rule_bypass_option = "AzureServices"` in Terraform).
 
@@ -33,11 +34,6 @@ az acr build \
 To pin a specific `code-server` version during ACR build:
 
 ```bash
-When attaching from VS Code, set the current kubectl namespace to the workspace namespace first. The Dev Containers extension queries the current kubectl namespace and will not discover the pod if kubectl is still pointed at `default`.
-
-```bash
-kubectl config set-context --current --namespace=devcontainer-<username>
-```
 az acr build \
   --registry <acr-name> \
   --image remote-devcontainer:latest \
@@ -73,9 +69,18 @@ PowerShell:
 ```
 
 Fail-fast checks are enforced before provisioning:
+
 - Kubernetes server version must be >= 1.34
 - `file.csi.azure.com` CSI driver must be present
 - AKS kubelet identity must already have `Storage File Data SMB MI Admin` on the storage account
+
+After provisioning, set the active namespace before attaching from VS Code:
+
+```bash
+kubectl config set-context --current --namespace=devcontainer-<username>
+```
+
+The Dev Containers extension queries the current kubectl namespace and will not discover the pod if kubectl is still pointed at `default`.
 
 If your Azure context contains multiple AKS clusters, set:
 

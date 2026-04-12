@@ -4,7 +4,7 @@ This document covers post-deployment and ongoing operating procedures for Shipya
 
 ## 1. ARC Bootstrap (Terraform-Orchestrated)
 
-Run ARC bootstrap through Terraform by enabling `arc_bootstrap_enabled = true` in `infra/demo/terraform.tfvars`.
+Run ARC bootstrap through Terraform by enabling `arc_bootstrap_enabled = true` in `infra/terraform.tfvars`.
 
 Stub topics to complete during implementation:
 

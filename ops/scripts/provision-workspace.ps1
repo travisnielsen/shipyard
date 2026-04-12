@@ -31,7 +31,7 @@ function Fail {
     exit 1
 }
 
-function Require-Cmd {
+function Test-CommandAvailable {
     param([string]$CommandName)
     if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
         Fail "Required command not found: $CommandName"
@@ -74,8 +74,8 @@ Write-Host "    File share      : $ShareName"
 Write-Host "    StorageClass    : $StorageClassName"
 Write-Host ''
 
-Require-Cmd kubectl
-Require-Cmd az
+Test-CommandAvailable kubectl
+Test-CommandAvailable az
 
 $WorkspaceImage = $env:DEV_WORKSPACE_IMAGE
 if ([string]::IsNullOrWhiteSpace($WorkspaceImage)) {

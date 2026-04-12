@@ -24,23 +24,23 @@ fi
 echo "Running Terraform checks for staged infra changes..."
 
 # Keep formatting normalized across all IaC files.
-if ! terraform -chdir=infra/demo fmt -check -recursive -no-color; then
+if ! terraform -chdir=infra fmt -check -recursive -no-color; then
   echo ""
   echo "ERROR: Terraform formatting check failed."
-  echo "Run: terraform -chdir=infra/demo fmt -recursive"
+  echo "Run: terraform -chdir=infra fmt -recursive"
   echo ""
   exit 1
 fi
 
 # Validate configuration in local mode (no backend access required).
-if ! terraform -chdir=infra/demo init -backend=false -input=false -no-color >/dev/null; then
+if ! terraform -chdir=infra init -backend=false -input=false -no-color >/dev/null; then
   echo ""
   echo "ERROR: Terraform init failed (backend disabled mode)."
   echo ""
   exit 1
 fi
 
-if ! terraform -chdir=infra/demo validate -no-color; then
+if ! terraform -chdir=infra validate -no-color; then
   echo ""
   echo "ERROR: Terraform validate failed."
   echo ""
@@ -49,7 +49,7 @@ fi
 
 if command -v tflint >/dev/null 2>&1; then
   echo "Running tflint..."
-  if ! tflint --chdir=infra/demo --format compact; then
+  if ! tflint --chdir=infra --format compact; then
     echo ""
     echo "ERROR: tflint found issues."
     echo ""

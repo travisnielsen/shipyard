@@ -6,7 +6,7 @@ This document is a generic, step-by-step reference pattern for deploying and ope
 
 It assumes this repository layout:
 
-- `infra/demo` for shared platform infrastructure
+- `infra` for shared platform infrastructure
 - `devcontainer` for image build and in-container runtime scripts
 - `ops/scripts` for control-plane provisioning and bootstrap scripts
 
@@ -15,7 +15,7 @@ It assumes this repository layout:
 Install and configure the following tools:
 
 - Azure CLI (`az`)
-- Terraform (compatible with `infra/demo/versions.tf`)
+- Terraform (compatible with `infra/versions.tf`)
 - Docker
 - `kubectl` (for AKS workflow)
 
@@ -94,7 +94,7 @@ After completing Section 2, populate local Terraform variables with the IDs and 
 Create your local Terraform variable file:
 
 ```bash
-cd infra/demo
+cd infra
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -108,7 +108,7 @@ arc_runtime_principal_id    = "<ARC_RUNTIME_PRINCIPAL_ID-from-script-output>"
 
 `ARC_RUNTIME_PRINCIPAL_ID` is the service principal object ID (RBAC principal ID), not the client ID.
 
-Review the remaining Terraform values in `infra/demo/terraform.tfvars`:
+Review the remaining Terraform values in `infra/terraform.tfvars`:
 
 - `prefix`
 - `location`
@@ -128,7 +128,7 @@ The Terraform deployment scripts use `local-exec` commands to provision the GitH
 - outbound access to Azure control plane APIs
 - `pwsh` installed if `arc_bootstrap_script_shell = "powershell"`
 
-From `infra/demo`:
+From `infra`:
 
 ```bash
 terraform init
@@ -164,7 +164,7 @@ Set the required repository variables for `.github/workflows/devcontainer-image-
 Example command to capture the ACR value:
 
 ```bash
-cd infra/demo
+cd infra
 terraform output -raw acr_login_server
 ```
 
@@ -305,7 +305,7 @@ Delete user data as well:
 ### 9.2 Destroy Shared Infrastructure
 
 ```bash
-cd infra/demo
+cd infra
 terraform destroy
 ```
 
@@ -343,7 +343,7 @@ terraform destroy
 ### Stage 2: Infrastructure + ARC Bootstrap
 
 1. Set Terraform variables for ARC bootstrap and runner node pool.
-2. Run `terraform init`, `terraform validate`, `terraform plan`, `terraform apply` in `infra/demo`.
+2. Run `terraform init`, `terraform validate`, `terraform plan`, `terraform apply` in `infra`.
 3. Validate:
    - `terraform output arc_runner_nodepool_name`
    - `az aks command invoke ... kubectl get pods -n arc-systems`
@@ -364,7 +364,7 @@ terraform destroy
 
 ## 13. Reference Files
 
-- Terraform stack: `infra/demo`
+- Terraform stack: `infra`
 - Devcontainer package: `devcontainer`
 - Day-2 operations: `docs/DAY2_OPERATIONS.md`
 - AKS provision script: `ops/scripts/provision-workspace.sh`

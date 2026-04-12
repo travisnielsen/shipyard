@@ -13,6 +13,21 @@ output "acr_login_server" {
   description = "Private ACR login server."
 }
 
+output "acr_task_agentpool_name" {
+  value       = var.enable_private_acr_tasks ? azurerm_container_registry_agent_pool.private_tasks[0].name : null
+  description = "Private ACR Task agent pool name used for VNET-injected builds."
+}
+
+output "acr_task_agentpool_id" {
+  value       = var.enable_private_acr_tasks ? azurerm_container_registry_agent_pool.private_tasks[0].id : null
+  description = "Private ACR Task agent pool resource ID."
+}
+
+output "acr_tasks_subnet_id" {
+  value       = module.networking.subnets["acr_tasks"].resource_id
+  description = "Subnet ID delegated to ACR Tasks and linked to NAT egress."
+}
+
 output "aks_cluster_name" {
   value       = module.aks[0].name
   description = "AKS cluster name."

@@ -27,6 +27,7 @@ variable "subnet_cidrs" {
   type = object({
     infra             = string
     aks_nodes         = string
+    acr_tasks         = string
     private_endpoints = string
     vdi_integration   = string
     dev_vm            = string
@@ -36,10 +37,45 @@ variable "subnet_cidrs" {
   default = {
     infra             = "10.70.0.0/24"
     aks_nodes         = "10.70.1.0/24"
+    acr_tasks         = "10.70.2.0/27"
     private_endpoints = "10.70.3.0/24"
     vdi_integration   = "10.70.4.0/24"
     dev_vm            = "10.70.5.0/24"
     bastion           = "10.70.6.0/26"
+  }
+}
+
+variable "enable_private_acr_tasks" {
+  description = "Deploy a private, VNET-injected ACR Task agent pool for image builds."
+  type        = bool
+  default     = true
+}
+
+variable "acr_task_agentpool_name" {
+  description = "Name of the private ACR Task agent pool."
+  type        = string
+  default     = "arcbuild"
+}
+
+variable "acr_task_agentpool_tier" {
+  description = "SKU tier for the ACR Task agent pool."
+  type        = string
+  default     = "S2"
+
+  validation {
+    condition     = contains(["S1", "S2", "S3"], var.acr_task_agentpool_tier)
+    error_message = "acr_task_agentpool_tier must be one of: S1, S2, S3."
+  }
+}
+
+variable "acr_task_agentpool_instance_count" {
+  description = "Number of agents in the private ACR Task agent pool."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.acr_task_agentpool_instance_count >= 1
+    error_message = "acr_task_agentpool_instance_count must be >= 1."
   }
 }
 
@@ -154,10 +190,34 @@ variable "arc_bootstrap_config_url" {
   default     = null
 }
 
+variable "arc_github_app_id" {
+  description = "GitHub App ID used by ARC runner scale set authentication."
+  type        = string
+  default     = null
+}
+
+variable "arc_github_app_installation_id" {
+  description = "GitHub App Installation ID used by ARC runner scale set authentication."
+  type        = string
+  default     = null
+}
+
+variable "arc_github_app_private_key_path" {
+  description = "Path to GitHub App private key (.pem) used to create ARC auth secret, relative to infra or absolute."
+  type        = string
+  default     = null
+}
+
 variable "arc_bootstrap_runner_labels" {
   description = "Stable labels assigned to ARC runners during bootstrap."
   type        = list(string)
   default     = ["shipyard-private", "linux", "aks"]
+}
+
+variable "arc_runner_image" {
+  description = "Container image URI for ARC runner pods. Override with custom image from ACR (e.g., shipyardXXXXacr.azurecr.io/actions-runner:latest)."
+  type        = string
+  default     = "ghcr.io/actions/actions-runner:latest"
 }
 
 variable "arc_runner_min_replicas" {
@@ -183,15 +243,15 @@ variable "arc_runner_max_replicas" {
 }
 
 variable "arc_bootstrap_script_path_bash" {
-  description = "Path to the ARC bootstrap Bash script, relative to infra/demo."
+  description = "Path to the ARC bootstrap Bash script, relative to infra."
   type        = string
-  default     = "../../ops/scripts/bootstrap-arc.sh"
+  default     = "scripts/bootstrap-arc.sh"
 }
 
 variable "arc_bootstrap_script_path_powershell" {
-  description = "Path to the ARC bootstrap PowerShell script, relative to infra/demo."
+  description = "Path to the ARC bootstrap PowerShell script, relative to infra."
   type        = string
-  default     = "../../ops/scripts/bootstrap-arc.ps1"
+  default     = "scripts/bootstrap-arc.ps1"
 }
 
 variable "arc_runner_nodepool_enabled" {
@@ -256,6 +316,12 @@ variable "arc_runner_nodepool_taints" {
 
 variable "arc_runtime_principal_id" {
   description = "Object ID for ARC runtime identity used to assign AcrPull/AcrPush on ACR. When using the same principal as GitHub OIDC federation, use the emitted ARC_RUNTIME_PRINCIPAL_ID value from setup-github-actions scripts."
+  type        = string
+  default     = null
+}
+
+variable "github_oidc_principal_id" {
+  description = "Object ID for GitHub Actions OIDC federated identity. If not provided, defaults to arc_runtime_principal_id. Used to assign AcrPull/AcrPush permissions on ACR for GitHub Actions workflows."
   type        = string
   default     = null
 }
