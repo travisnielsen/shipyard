@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Existing Shipyard deployment from `infra/demo` with AKS and ACR.
+- Existing Shipyard deployment from `infra` with AKS and ACR.
 - `kubectl`, `helm`, `az`, and `terraform` installed.
 - GitHub repository admin permissions for Actions and variables/secrets.
 - Azure permissions to create app registrations, federated credentials, and scoped role assignments.
@@ -18,7 +18,7 @@ bash .githooks/setup-hooks.sh
 - Run the setup script under `ops/scripts/` with subscription/repo inputs.
 - Capture emitted values: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ARC_RUNTIME_PRINCIPAL_ID`.
 - Add these as GitHub Actions repository variables.
-- Set `arc_runtime_principal_id` in `infra/demo/terraform.tfvars` to the emitted `ARC_RUNTIME_PRINCIPAL_ID` when using the same principal for GitHub federation and ARC runtime ACR RBAC.
+- Set `arc_runtime_principal_id` in `infra/terraform.tfvars` to the emitted `ARC_RUNTIME_PRINCIPAL_ID` when using the same principal for GitHub federation and ARC runtime ACR RBAC.
 - Verify with a test workflow step:
 
 ```yaml
@@ -37,12 +37,12 @@ Validation and remediation:
 
 ## 3. Deploy ARC into AKS
 
-- Configure `infra/demo/terraform.tfvars` for single-flow orchestration:
+- Configure `infra/terraform.tfvars` for single-flow orchestration:
 - `arc_bootstrap_enabled = true`
 - `arc_bootstrap_execution_mode = "azure-control-plane"` (or `"gitops"` when explicitly required)
 - `arc_bootstrap_script_shell = "bash"` or `"powershell"`
 - runner scope/config inputs (`arc_bootstrap_runner_scope`, `arc_bootstrap_config_url`, replica bounds)
-- Run the default Terraform-driven deployment flow from `infra/demo`:
+- Run the default Terraform-driven deployment flow from `infra`:
 
 ```bash
 terraform init

@@ -3,7 +3,7 @@
 ## Decision 1: Use Actions Runner Controller (ARC) Helm deployment in AKS
 
 - Decision: Deploy ARC into the existing AKS cluster using the upstream Helm charts and manage values/manifests in-repo.
-- Rationale: ARC is the standard GitHub pattern for Kubernetes-hosted private runners, supports autoscaling runner sets, and aligns with the existing AKS foundation in `infra/demo`.
+- Rationale: ARC is the standard GitHub pattern for Kubernetes-hosted private runners, supports autoscaling runner sets, and aligns with the existing AKS foundation in `infra`.
 - Alternatives considered:
   - Container Apps runners: rejected due to control/feature constraints for advanced private agent scenarios.
   - Static self-hosted VM runners: rejected due to lower elasticity and higher ops overhead.
@@ -30,7 +30,7 @@
 - Rationale: Clarifies responsibility boundaries for operators and coding agents; prevents control-plane automation from being conflated with container runtime assets.
 - Alternatives considered:
   - Keep mixed script model in `devcontainer/scripts`: rejected for ambiguity.
-  - Move to `infra/demo/scripts`: rejected because infra helper scripts and workspace lifecycle scripts are different operational layers.
+  - Move to `infra/scripts`: rejected because infra helper scripts and workspace lifecycle scripts are different operational layers.
 
 ## Decision 5: Enforce validation through local hooks and CI checks
 

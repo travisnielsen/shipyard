@@ -7,6 +7,7 @@ vnet_cidr = "10.70.0.0/16"
 subnet_cidrs = {
   infra              = "10.70.0.0/24"
   aks_nodes          = "10.70.1.0/24"
+  acr_tasks          = "10.70.2.0/27"
   private_endpoints  = "10.70.3.0/24"
   vdi_integration    = "10.70.4.0/24"
   dev_vm        = "10.70.5.0/24"
@@ -15,6 +16,10 @@ subnet_cidrs = {
 
 deploy_test_vm                  = true
 enable_nat_gateway              = true
+enable_private_acr_tasks        = true
+acr_task_agentpool_name         = "arcbuild"
+acr_task_agentpool_tier         = "S2"
+acr_task_agentpool_instance_count = 1
 dev_vm_size                = "Standard_D2as_v5"
 dev_vm_admin_username      = "azureuser"
 dev_vm_admin_password      = "ReplaceWithStrongPassword!123"
@@ -32,9 +37,21 @@ arc_bootstrap_execution_mode  = "azure-control-plane"
 arc_bootstrap_script_shell    = "bash"
 arc_bootstrap_runner_scope    = "repository"
 arc_bootstrap_config_url      = "https://github.com/<owner>/<repo>"
+arc_github_app_id             = "123456"
+arc_github_app_installation_id = "12345678"
+# Path is resolved from infra. If the .pem lives in infra, use just the filename.
+# Example in infra: arc_github_app_private_key_path = "shipyard-gh-runners.private-key.pem"
+arc_github_app_private_key_path = "../ops/secrets/github-app-private-key.pem"
 arc_bootstrap_runner_labels   = ["shipyard-private", "linux", "aks"]
 arc_runner_min_replicas       = 0
 arc_runner_max_replicas       = 5
+
+# ARC runner image consumed by ARC bootstrap.
+# Build and publish the custom runner image with Entra ID auth only; ACR admin is not required.
+# Example:
+#   az acr build --agent-pool <pool> --registry <acr> --file infra/github-runner/Dockerfile.runner --image actions-runner:latest https://github.com/<owner>/<repo>.git
+# Then point ARC at your ACR image URI.
+arc_runner_image              = "<acr-name>.azurecr.io/actions-runner:latest"
 
 # Dedicated ARC runner nodepool controls
 arc_runner_nodepool_enabled   = true
@@ -52,6 +69,11 @@ arc_runner_nodepool_taints = ["workload=github-runner:NoSchedule"]
 # Optional ARC runtime identity object id (service principal object ID / RBAC principal ID).
 # If using the same principal as GitHub OIDC federation, set this to ARC_RUNTIME_PRINCIPAL_ID from setup-github-actions script output.
 arc_runtime_principal_id   = "00000000-0000-0000-0000-000000000000"
+
+# Optional GitHub Actions OIDC federated identity object ID. 
+# Used to grant AcrPull/AcrPush permissions on ACR for GitHub Actions workflows.
+# If not provided, defaults to arc_runtime_principal_id (recommended if both are the same principal).
+github_oidc_principal_id   = "00000000-0000-0000-0000-000000000000"
 
 # Entra group object ID for workspace users (AKS Cluster User + AcrPull + Storage File Data SMB Share Contributor).
 workspace_user_group_id = "00000000-0000-0000-0000-000000000000"

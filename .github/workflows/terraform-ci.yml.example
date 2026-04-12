@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: infra/demo
+        working-directory: infra
 
     steps:
       - name: Checkout
@@ -53,7 +53,7 @@ jobs:
     environment: demo
     defaults:
       run:
-        working-directory: infra/demo
+        working-directory: infra
 
     steps:
       - name: Checkout

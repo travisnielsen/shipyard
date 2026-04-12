@@ -92,7 +92,7 @@ Write-Host "Group display name : $GroupDisplayName"
 Write-Host "Group object ID    : $groupId"
 Write-Host "Group purpose      : $Purpose"
 Write-Host ""
-Write-Host "Set this in infra/demo/terraform.tfvars:"
+Write-Host "Set this in infra/terraform.tfvars:"
 Write-Host "$terraformVariableName = \"$groupId\""
 
 Write-Output $groupId

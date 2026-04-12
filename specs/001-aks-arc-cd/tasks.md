@@ -15,7 +15,7 @@
 
 - [x] T001 Create operations script directory scaffold in ops/scripts/.gitkeep
 - [x] T002 Create ARC bootstrap script scaffolds in ops/scripts/bootstrap-arc.sh and ops/scripts/bootstrap-arc.ps1
-- [x] T003 [P] Add ARC bootstrap and runner pool input placeholders in infra/demo/terraform.tfvars.example
+- [x] T003 [P] Add ARC bootstrap and runner pool input placeholders in infra/terraform.tfvars.example
 - [x] T004 [P] Add feature runbook section stubs for ARC/bootstrap/nodepool flows in docs/DEPLOYMENT_RUNBOOK.md
 
 ---
@@ -26,13 +26,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [x] T005 Add ARC bootstrap toggle, execution mode, and script invocation controls in infra/demo/variables.tf
-- [x] T006 Add dedicated runner node pool variables (size, min/max, labels, taints) in infra/demo/variables.tf
-- [x] T007 Add ARC and runner nodepool locals for naming/labels/taints in infra/demo/locals.tf
-- [x] T008 Implement dedicated runner node pool resource configuration in infra/demo/main.tf
-- [x] T009 Implement Terraform-orchestrated post-provision ARC bootstrap invocation using `terraform_data` + `local-exec` + `triggers_replace` in infra/demo/main.tf
-- [x] T010 Add ACR role assignment resources for ARC runtime identity (`AcrPull`/optional `AcrPush`) in infra/demo/main.tf
-- [x] T011 Add ARC bootstrap and runner nodepool outputs in infra/demo/outputs.tf
+- [x] T005 Add ARC bootstrap toggle, execution mode, and script invocation controls in infra/variables.tf
+- [x] T006 Add dedicated runner node pool variables (size, min/max, labels, taints) in infra/variables.tf
+- [x] T007 Add ARC and runner nodepool locals for naming/labels/taints in infra/locals.tf
+- [x] T008 Implement dedicated runner node pool resource configuration in infra/main.tf
+- [x] T009 Implement Terraform-orchestrated post-provision ARC bootstrap invocation using `terraform_data` + `local-exec` + `triggers_replace` in infra/main.tf
+- [x] T010 Add ACR role assignment resources for ARC runtime identity (`AcrPull`/optional `AcrPush`) in infra/main.tf
+- [x] T011 Add ARC bootstrap and runner nodepool outputs in infra/outputs.tf
 - [x] T012 Document idempotent single-flow Terraform orchestration behavior and re-invocation triggers in specs/001-aks-arc-cd/quickstart.md
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
@@ -48,8 +48,8 @@
 ### Implementation for User Story 1
 
 - [x] T013 [US1] Add ARC controller install steps (Helm/kubectl commands via `az aks command invoke`) to ops/scripts/bootstrap-arc.sh
-- [x] T014 [US1] Add ARC namespace and controller values file in infra/demo/scripts/arc/controller-values.yaml
-- [x] T015 [US1] Add autoscaling runner set manifest template in infra/demo/scripts/arc/autoscaling-runner-set.yaml
+- [x] T014 [US1] Add ARC namespace and controller values file in infra/scripts/arc/controller-values.yaml
+- [x] T015 [US1] Add autoscaling runner set manifest template in infra/scripts/arc/autoscaling-runner-set.yaml
 - [x] T016 [US1] Add PowerShell command invocation parity and idempotency guards (`az aks command invoke`) in ops/scripts/bootstrap-arc.ps1
 - [x] T017 [US1] Add runner scope/label/min-max parameters to bootstrap script in ops/scripts/bootstrap-arc.sh
 - [x] T018 [US1] Add idempotency guards for ARC controller and runner set bootstrap in ops/scripts/bootstrap-arc.sh
@@ -87,10 +87,10 @@
 
 ### Implementation for User Story 5
 
-- [x] T027 [US5] Add runner nodepool labels and taints to infrastructure config in infra/demo/main.tf
-- [x] T028 [US5] Add runner pod nodeSelector and tolerations in infra/demo/scripts/arc/autoscaling-runner-set.yaml
-- [x] T029 [US5] Add runner pool autoscaling bounds and min=0 preference logic in infra/demo/variables.tf
-- [x] T030 [US5] Add fallback behavior when min=0 is unsupported in selected environment in infra/demo/main.tf
+- [x] T027 [US5] Add runner nodepool labels and taints to infrastructure config in infra/main.tf
+- [x] T028 [US5] Add runner pod nodeSelector and tolerations in infra/scripts/arc/autoscaling-runner-set.yaml
+- [x] T029 [US5] Add runner pool autoscaling bounds and min=0 preference logic in infra/variables.tf
+- [x] T030 [US5] Add fallback behavior when min=0 is unsupported in selected environment in infra/main.tf
 - [x] T031 [US5] Add nodepool placement verification steps (`kubectl get pods -o wide`, label checks) in docs/DEPLOYMENT_RUNBOOK.md
 - [x] T032 [US5] Add scale-to-minimum verification procedure in specs/001-aks-arc-cd/quickstart.md
 

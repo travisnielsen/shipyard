@@ -54,6 +54,11 @@ module "networking" {
       address_prefixes = [var.subnet_cidrs.aks_nodes]
       nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
     }
+    acr_tasks = {
+      name             = "snet-${var.prefix}-acr-tasks"
+      address_prefixes = [var.subnet_cidrs.acr_tasks]
+      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+    }
     private_endpoints = {
       name                              = "snet-${var.prefix}-pep"
       address_prefixes                  = [var.subnet_cidrs.private_endpoints]
@@ -264,6 +269,21 @@ module "container_registry" {
   depends_on = [module.private_dns_acr]
 }
 
+resource "azurerm_container_registry_agent_pool" "private_tasks" {
+  count = var.enable_private_acr_tasks ? 1 : 0
+
+  name                      = var.acr_task_agentpool_name
+  resource_group_name       = azurerm_resource_group.this.name
+  location                  = var.location
+  container_registry_name   = module.container_registry.resource.name
+  instance_count            = var.acr_task_agentpool_instance_count
+  tier                      = var.acr_task_agentpool_tier
+  virtual_network_subnet_id = module.networking.subnets["acr_tasks"].resource_id
+  tags                      = var.tags
+
+  depends_on = [module.container_registry]
+}
+
 module "key_vault" {
   source  = "Azure/avm-res-keyvault-vault/azurerm"
   version = "0.10.2"
@@ -453,7 +473,7 @@ resource "terraform_data" "arc_bootstrap" {
   triggers_replace = [
     module.aks[0].resource_id,
     local.arc_bootstrap_script_hash,
-    jsonencode(local.arc_bootstrap_environment),
+    jsonencode(local.arc_bootstrap_trigger_inputs),
   ]
 
   provisioner "local-exec" {
@@ -581,12 +601,71 @@ resource "azurerm_role_assignment" "arc_runtime_acr_pull" {
   principal_id         = var.arc_runtime_principal_id
 }
 
+resource "azurerm_role_assignment" "arc_runtime_acr_reader" {
+  count = var.arc_runtime_principal_id != null ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "Reader"
+  principal_id         = var.arc_runtime_principal_id
+}
+
 resource "azurerm_role_assignment" "arc_runtime_acr_push" {
   count = var.arc_runtime_principal_id != null ? 1 : 0
 
   scope                = module.container_registry.resource_id
   role_definition_name = "AcrPush"
   principal_id         = var.arc_runtime_principal_id
+}
+
+resource "azurerm_role_assignment" "arc_runtime_acr_tasks_contributor" {
+  count = var.arc_runtime_principal_id != null ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "Container Registry Tasks Contributor"
+  principal_id         = var.arc_runtime_principal_id
+}
+
+# GitHub Actions OIDC federated identity ACR permissions
+locals {
+  github_oidc_principal_id = var.github_oidc_principal_id != null ? var.github_oidc_principal_id : var.arc_runtime_principal_id
+  # Only create separate assignments if the principals are different
+  # Otherwise, the arc_runtime assignments above already cover the permissions
+  create_separate_github_oidc_assignments = (
+    var.github_oidc_principal_id != null &&
+    var.github_oidc_principal_id != var.arc_runtime_principal_id
+  )
+}
+
+resource "azurerm_role_assignment" "github_oidc_acr_pull" {
+  count = local.create_separate_github_oidc_assignments ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "AcrPull"
+  principal_id         = var.github_oidc_principal_id
+}
+
+resource "azurerm_role_assignment" "github_oidc_acr_push" {
+  count = local.create_separate_github_oidc_assignments ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "AcrPush"
+  principal_id         = var.github_oidc_principal_id
+}
+
+resource "azurerm_role_assignment" "github_oidc_acr_reader" {
+  count = local.create_separate_github_oidc_assignments ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "Reader"
+  principal_id         = var.github_oidc_principal_id
+}
+
+resource "azurerm_role_assignment" "github_oidc_acr_tasks_contributor" {
+  count = local.create_separate_github_oidc_assignments ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "Container Registry Tasks Contributor"
+  principal_id         = var.github_oidc_principal_id
 }
 
 
