@@ -20,9 +20,7 @@ jobs:
   build-and-push:
     runs-on:
       - self-hosted
-      - linux
-      - shipyard-private
-      - aks
+      - shipyard-runner-set
     env:
       ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
       IMAGE_NAME: remote-devcontainer
