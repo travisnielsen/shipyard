@@ -55,14 +55,13 @@ jobs:
       - name: Build image with ACR Tasks
         run: |
           set -euo pipefail
-          az acr build --registry "$ACR_NAME" --resource-group "$ACR_RESOURCE_GROUP" --agent-pool "$ACR_TASK_AGENTPOOL_NAME" --image "${IMAGE_NAME}:${GITHUB_SHA}" --file ./devcontainer/Dockerfile ./devcontainer
+          EXTRA_IMAGE_ARG=()
+          if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+            SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
+            EXTRA_IMAGE_ARG=(--image "${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}")
+          fi
 
-      - name: Tag branch-sha
-        if: github.ref_type == 'branch'
-        run: |
-          set -euo pipefail
-          SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
-          az acr import --name "$ACR_NAME" --resource-group "$ACR_RESOURCE_GROUP" --source "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}" --image "${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}"
+          az acr build --registry "$ACR_NAME" --resource-group "$ACR_RESOURCE_GROUP" --agent-pool "$ACR_TASK_AGENTPOOL_NAME" --image "${IMAGE_NAME}:${GITHUB_SHA}" "${EXTRA_IMAGE_ARG[@]}" --file ./devcontainer/Dockerfile ./devcontainer
 
       - name: Push branch-sha tag
         if: github.ref_type == 'branch'
