@@ -19,7 +19,6 @@ concurrency:
 jobs:
   build-and-push:
     runs-on:
-      - self-hosted
       - shipyard-runner-set
     env:
       ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
