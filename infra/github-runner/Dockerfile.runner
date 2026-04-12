@@ -1,0 +1,56 @@
+# Based on official GitHub Actions runner image
+# Adds Azure CLI, Docker, and other tools needed for shipyard workflows
+FROM ghcr.io/actions/actions-runner:latest
+
+USER root
+
+# Install Azure CLI, Docker, and other commonly needed tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    apt-transport-https \
+    && curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
+    && curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add runner user to docker group
+RUN usermod -aG docker runner
+
+# Verify az cli and docker are available
+RUN az version && docker --version
+
+USER runner
+
+# Default to runner startup (inherited from base image)
+CMD ["/home/runner/run.sh"]
+# Based on official GitHub Actions runner image
+# Adds Azure CLI and other tools needed for shipyard workflows
+FROM ghcr.io/actions/actions-runner:latest
+
+USER root
+
+# Install Azure CLI, Docker, and other commonly needed tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    apt-transport-https \
+    && curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
+    && curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add runner user to docker group
+RUN usermod -aG docker runner
+
+# Verify az cli and docker are available
+RUN az version && docker --version
+
+USER runner
+
+# Default to runner startup (inherited from base image)
+CMD ["/home/runner/run.sh"]
