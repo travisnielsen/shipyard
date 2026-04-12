@@ -1,0 +1,76 @@
+name: arc-runner-contract
+version: 1
+summary: Contract for deploying and operating GitHub Actions Runner Controller in Shipyard AKS.
+
+inputs:
+  aks:
+    clusterName: string
+    resourceGroupName: string
+    subscriptionId: string
+  github:
+    scope: repository | organization
+    configUrl: string
+    runnerLabels:
+      type: array
+      items: string
+  scaling:
+    minRunners: integer
+    maxRunners: integer
+  nodePlacement:
+    nodePoolName: string
+    nodeSelector:
+      type: object
+    tolerations:
+      type: array
+      items: object
+    requiredNodeLabels:
+      type: array
+      items: string
+    requiredNodeTaints:
+      type: array
+      items: string
+  nodePoolScaling:
+    minNodes: integer
+    maxNodes: integer
+    scaleToZeroPreferred: boolean
+    scaleToZeroSupported: boolean
+    effectiveMinNodes: integer
+  acrAccess:
+    loginServer: string
+    pullRoleRequired: boolean
+    pushRoleRequired: boolean
+
+outputs:
+  kubernetes:
+    arcNamespace: string
+    runnerSetName: string
+    runnerPodsReady: integer
+  operations:
+    validationCommands:
+      - kubectl get autoscalingrunnersets -A
+      - kubectl get pods -n arc-systems
+      - kubectl get pods -n arc-runners -o wide
+      - az aks nodepool show --resource-group <rg> --cluster-name <name> --name <runner-pool>
+
+constraints:
+  - maxRunners must be greater than or equal to minRunners.
+  - runnerLabels must include at least one stable label consumed by workflows.
+  - configUrl must match scope (repo URL for repository, org URL for organization).
+  - all resources must be provisioned with private-by-default network posture.
+  - ARC runtime identity must have AcrPull on target ACR scope.
+  - ARC runtime identity must have AcrPush when workflows publish images.
+  - ACR role assignments must be scoped to registry or resource group level (least privilege).
+  - ARC runner pods must schedule only on the designated runner node pool via selector/toleration policy.
+  - Runner node pool must expose unique labels/taints separating build and workspace workloads.
+  - Runner node pool min node count should be 0 when platform support exists; otherwise use documented lowest supported minimum.
+  - When scale-to-zero support is false, effective minimum node count must be 1.
+
+failureModes:
+  - github-registration-failure
+  - runner-pod-unschedulable
+  - scale-listener-auth-error
+  - acr-pull-authorization-failure
+  - acr-push-authorization-failure
+  - runner-nodepool-selector-mismatch
+  - runner-nodepool-no-toleration
+  - runner-nodepool-cannot-scale-to-zero

@@ -72,3 +72,38 @@ output "bastion_public_ip" {
   value       = var.deploy_test_vm ? azurerm_public_ip.bastion[0].ip_address : null
   description = "Public IP of the Azure Bastion host."
 }
+
+output "arc_runner_nodepool_name" {
+  value       = var.arc_runner_nodepool_enabled ? local.arc_runner_nodepool_name : null
+  description = "Name of the dedicated ARC runner node pool when enabled."
+}
+
+output "arc_runner_nodepool_labels" {
+  value       = var.arc_runner_nodepool_enabled ? local.arc_runner_node_labels : null
+  description = "Labels applied to the dedicated ARC runner node pool."
+}
+
+output "arc_runner_nodepool_taints" {
+  value       = var.arc_runner_nodepool_enabled ? local.arc_runner_node_taints : null
+  description = "Taints applied to the dedicated ARC runner node pool."
+}
+
+output "arc_runner_nodepool_requested_min_count" {
+  value       = var.arc_runner_nodepool_enabled ? var.arc_runner_nodepool_min_count : null
+  description = "Requested minimum node count for the ARC runner node pool."
+}
+
+output "arc_runner_nodepool_effective_min_count" {
+  value       = var.arc_runner_nodepool_enabled ? local.arc_runner_nodepool_effective_min_count : null
+  description = "Effective minimum node count after scale-to-zero support fallback is applied."
+}
+
+output "arc_bootstrap_enabled" {
+  value       = var.arc_bootstrap_enabled
+  description = "Whether Terraform-orchestrated ARC bootstrap is enabled."
+}
+
+output "arc_bootstrap_execution_mode" {
+  value       = var.arc_bootstrap_execution_mode
+  description = "Configured ARC bootstrap execution mode."
+}

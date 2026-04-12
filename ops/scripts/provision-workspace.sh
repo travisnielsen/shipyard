@@ -29,7 +29,7 @@ SHARE_NAME="${4:-devcontainer-${USERNAME}}"
 
 NAMESPACE="devcontainer-${USERNAME}"
 STORAGE_CLASS_NAME="devcontainer-azurefile-mi-${USERNAME}"
-MANIFESTS_DIR="$(cd "$(dirname "$0")/../manifests" && pwd)"
+MANIFESTS_DIR="$(cd "$(dirname "$0")/../../devcontainer/manifests" && pwd)"
 
 require_cmd() {
   local cmd="$1"

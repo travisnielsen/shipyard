@@ -1,0 +1,11 @@
+# ARC controller Helm values scaffold.
+# Applied via az aks command invoke in ops/scripts/bootstrap-arc.sh|.ps1.
+
+githubWebhookServer:
+  enabled: false
+
+flags:
+  updateStrategy: immediate
+
+metrics:
+  controllerManagerAddr: ":8080"

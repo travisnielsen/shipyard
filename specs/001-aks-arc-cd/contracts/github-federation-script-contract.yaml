@@ -1,0 +1,38 @@
+name: github-federation-script-contract
+version: 1
+summary: Contract for Entra federation setup scripts used by GitHub Actions in Shipyard.
+
+scriptLocations:
+  powershell: ops/scripts/setup-github-actions.ps1
+  bash: ops/scripts/setup-github-actions.sh
+
+requiredInputs:
+  - subscriptionId
+  - githubOwner
+  - githubRepo
+
+optionalInputs:
+  - subjectPattern
+  - appName
+
+expectedBehavior:
+  - verify target subscription exists
+  - create or discover Entra app registration
+  - create or discover service principal
+  - create or discover federated credential for GitHub OIDC issuer
+  - output principal identifiers used by Terraform-managed role assignments
+  - output AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, ARC_RUNTIME_PRINCIPAL_ID, FEDERATED_APP_OBJECT_ID
+
+constraints:
+  - no long-lived client secret creation
+  - no role assignments are created by this script
+  - repeated executions must be idempotent
+
+validation:
+  successSignals:
+    - azure login succeeds from workflow via OIDC
+    - az account show succeeds in workflow context
+  errorSignals:
+    - missing-prerequisite-inputs
+    - subject-claim-mismatch
+    - insufficient-rbac-permissions

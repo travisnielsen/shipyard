@@ -372,24 +372,40 @@ module "aks" {
     type           = "VirtualMachineScaleSets"
   }
 
-  agent_pools = var.aks_user_pool_enabled ? {
-    user = {
-      name                = "user"
-      vm_size             = var.aks_user_pool_vm_size
-      mode                = "User"
-      type                = "VirtualMachineScaleSets"
-      enable_auto_scaling = true
-      min_count           = var.aks_user_pool_min_count
-      max_count           = var.aks_user_pool_max_count
-      vnet_subnet_id      = module.networking.subnets["aks_nodes"].resource_id
-      node_labels = {
-        workload = "devworkspace"
+  agent_pools = merge(
+    var.aks_user_pool_enabled ? {
+      user = {
+        name                = "user"
+        vm_size             = var.aks_user_pool_vm_size
+        mode                = "User"
+        type                = "VirtualMachineScaleSets"
+        enable_auto_scaling = true
+        min_count           = var.aks_user_pool_min_count
+        max_count           = var.aks_user_pool_max_count
+        vnet_subnet_id      = module.networking.subnets["aks_nodes"].resource_id
+        node_labels = {
+          workload = "devworkspace"
+        }
+        node_taints = [
+          "workload=devworkspace:NoSchedule"
+        ]
       }
-      node_taints = [
-        "workload=devworkspace:NoSchedule"
-      ]
-    }
-  } : {}
+    } : {},
+    var.arc_runner_nodepool_enabled ? {
+      runner = {
+        name                = local.arc_runner_nodepool_name
+        vm_size             = var.arc_runner_nodepool_vm_size
+        mode                = "User"
+        type                = "VirtualMachineScaleSets"
+        enable_auto_scaling = true
+        min_count           = local.arc_runner_nodepool_effective_min_count
+        max_count           = var.arc_runner_nodepool_max_count
+        vnet_subnet_id      = module.networking.subnets["aks_nodes"].resource_id
+        node_labels         = local.arc_runner_node_labels
+        node_taints         = local.arc_runner_node_taints
+      }
+    } : {},
+  )
 
   network_profile = {
     network_plugin = "azure"
@@ -430,6 +446,31 @@ module "aks" {
   tags = var.tags
 }
 
+resource "terraform_data" "arc_bootstrap" {
+  count = local.deploy_aks && var.arc_bootstrap_enabled ? 1 : 0
+
+  # Trigger re-execution only when bootstrap inputs or scripts change.
+  triggers_replace = [
+    module.aks[0].resource_id,
+    local.arc_bootstrap_script_hash,
+    jsonencode(local.arc_bootstrap_environment),
+  ]
+
+  provisioner "local-exec" {
+    command = local.arc_bootstrap_command
+    environment = merge(
+      local.arc_bootstrap_environment,
+      {
+        AKS_CLUSTER_NAME      = module.aks[0].name
+        AKS_RESOURCE_GROUP    = azurerm_resource_group.this.name
+        AZURE_SUBSCRIPTION_ID = data.azurerm_client_config.current.subscription_id
+      }
+    )
+  }
+
+  depends_on = [module.aks]
+}
+
 resource "azurerm_role_assignment" "aks_acr_pull" {
   count = local.deploy_aks ? 1 : 0
 
@@ -457,35 +498,39 @@ resource "azurerm_role_assignment" "aks_storage_account_contributor" {
 
   scope                = azurerm_storage_account.this.id
   role_definition_name = "Storage Account Contributor"
-  principal_id         = module.aks[0].identity_principal_id
+  principal_id = coalesce(
+    try(module.aks[0].identity_principal_id, null),
+    try(module.aks[0].kubelet_identity.object_id, null),
+    try(module.aks[0].kubelet_identity.objectId, null)
+  )
 }
 
 # ---------------------------------------------------------------------------
 # Identity / RBAC baselines
 # ---------------------------------------------------------------------------
 
-resource "azurerm_role_assignment" "platform_admins_kv_admin" {
-  count = var.platform_admins_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_operators_kv_admin" {
+  count = var.workspace_operator_group_id != null ? 1 : 0
 
   scope                = module.key_vault.resource_id
   role_definition_name = "Key Vault Administrator"
-  principal_id         = var.platform_admins_group_id
+  principal_id         = var.workspace_operator_group_id
 }
 
-resource "azurerm_role_assignment" "platform_admins_acr_push" {
-  count = var.platform_admins_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_operators_acr_push" {
+  count = var.workspace_operator_group_id != null ? 1 : 0
 
   scope                = module.container_registry.resource_id
   role_definition_name = "AcrPush"
-  principal_id         = var.platform_admins_group_id
+  principal_id         = var.workspace_operator_group_id
 }
 
-resource "azurerm_role_assignment" "platform_admins_aks_rbac_cluster_admin" {
-  count = local.deploy_aks && var.platform_admins_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_operators_aks_rbac_cluster_admin" {
+  count = local.deploy_aks && var.workspace_operator_group_id != null ? 1 : 0
 
   scope                = module.aks[0].resource_id
   role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
-  principal_id         = var.platform_admins_group_id
+  principal_id         = var.workspace_operator_group_id
 }
 
 resource "azurerm_role_assignment" "current_principal_acr_push" {
@@ -504,12 +549,12 @@ resource "azurerm_role_assignment" "workspace_user_aks_user" {
   principal_id         = var.workspace_user_group_id
 }
 
-resource "azurerm_role_assignment" "workspace_cluster_admin_aks_cluster_admin" {
-  count = local.deploy_aks && var.workspace_cluster_admin_group_id != null ? 1 : 0
+resource "azurerm_role_assignment" "workspace_operators_aks_cluster_admin" {
+  count = local.deploy_aks && var.workspace_operator_group_id != null ? 1 : 0
 
   scope                = module.aks[0].resource_id
   role_definition_name = "Azure Kubernetes Service Cluster Admin Role"
-  principal_id         = var.workspace_cluster_admin_group_id
+  principal_id         = var.workspace_operator_group_id
 }
 
 resource "azurerm_role_assignment" "workspace_user_acr_pull" {
@@ -526,6 +571,22 @@ resource "azurerm_role_assignment" "workspace_user_storage_file_contributor" {
   scope                = azurerm_storage_account.this.id
   role_definition_name = "Storage File Data SMB Share Contributor"
   principal_id         = var.workspace_user_group_id
+}
+
+resource "azurerm_role_assignment" "arc_runtime_acr_pull" {
+  count = var.arc_runtime_principal_id != null ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "AcrPull"
+  principal_id         = var.arc_runtime_principal_id
+}
+
+resource "azurerm_role_assignment" "arc_runtime_acr_push" {
+  count = var.arc_runtime_principal_id != null ? 1 : 0
+
+  scope                = module.container_registry.resource_id
+  role_definition_name = "AcrPush"
+  principal_id         = var.arc_runtime_principal_id
 }
 
 

@@ -1,0 +1,40 @@
+name: arc-bootstrap-options-contract
+version: 1
+summary: Contract for jump-host-free ARC bootstrap execution modes in private AKS.
+
+bootstrapModes:
+  default: azure-control-plane
+  allowed:
+    - azure-control-plane
+    - gitops
+  fallback: gitops
+
+modeRequirements:
+  azure-control-plane:
+    bootstrapScriptPaths:
+      - ops/scripts/bootstrap-arc.sh
+      - ops/scripts/bootstrap-arc.ps1
+    requiresPrivateKubeApiReachabilityFromExecutionHost: false
+    requiresAzureControlPlaneAccess: true
+    requiresTerraformOrchestration: true
+    idempotent: true
+  gitops:
+    requiresPrivateKubeApiReachabilityFromExecutionHost: false
+    requiresInClusterController: true
+    idempotent: true
+
+constraints:
+  - default mode must run as part of the same Terraform-driven deployment process used for AKS provisioning.
+  - bootstrap execution must not require a dedicated jump server.
+  - private AKS API posture must remain enabled.
+  - selected mode must support repeatable non-interactive execution from CI.
+
+validation:
+  successSignals:
+    - ARC controller pods become ready in target namespace.
+    - AutoscalingRunnerSet resources reconcile successfully.
+  errorSignals:
+    - terraform-bootstrap-invocation-failure
+    - control-plane-command-failure
+    - gitops-reconciliation-failure
+    - private-api-connectivity-assumption-violation

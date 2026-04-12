@@ -26,15 +26,40 @@ aks_user_pool_vm_size   = "Standard_D2as_v5"
 aks_user_pool_min_count = 1
 aks_user_pool_max_count = 3
 
+# ARC bootstrap controls
+arc_bootstrap_enabled         = true
+arc_bootstrap_execution_mode  = "azure-control-plane"
+arc_bootstrap_script_shell    = "bash"
+arc_bootstrap_runner_scope    = "repository"
+arc_bootstrap_config_url      = "https://github.com/<owner>/<repo>"
+arc_bootstrap_runner_labels   = ["shipyard-private", "linux", "aks"]
+arc_runner_min_replicas       = 0
+arc_runner_max_replicas       = 5
+
+# Dedicated ARC runner nodepool controls
+arc_runner_nodepool_enabled   = true
+arc_runner_nodepool_name      = "arc"
+arc_runner_nodepool_vm_size   = "Standard_D2as_v5"
+arc_runner_nodepool_min_count = 0
+arc_runner_nodepool_max_count = 5
+arc_runner_nodepool_scale_to_zero_supported = true
+arc_runner_nodepool_labels = {
+  workload = "github-runner"
+  role     = "arc"
+}
+arc_runner_nodepool_taints = ["workload=github-runner:NoSchedule"]
+
+# Optional ARC runtime identity object id (service principal object ID / RBAC principal ID).
+# If using the same principal as GitHub OIDC federation, set this to ARC_RUNTIME_PRINCIPAL_ID from setup-github-actions script output.
+arc_runtime_principal_id   = "00000000-0000-0000-0000-000000000000"
+
 # Entra group object ID for workspace users (AKS Cluster User + AcrPull + Storage File Data SMB Share Contributor).
 workspace_user_group_id = "00000000-0000-0000-0000-000000000000"
 
-# Entra group object ID for workspace provisioning operators (AKS Cluster Admin Role).
-workspace_cluster_admin_group_id = "00000000-0000-0000-0000-000000000000"
-
-# Entra group object IDs used for RBAC assignments.
-platform_admins_group_id = "00000000-0000-0000-0000-000000000000"
-dev_group_id             = "00000000-0000-0000-0000-000000000000"
+# Entra group object ID for Shipyard workspace operators.
+# This group receives Key Vault Administrator, AcrPush, Azure Kubernetes Service Cluster Admin Role,
+# and Azure Kubernetes Service RBAC Cluster Admin.
+workspace_operator_group_id = "00000000-0000-0000-0000-000000000000"
 
 tags = {
   environment = "demo"

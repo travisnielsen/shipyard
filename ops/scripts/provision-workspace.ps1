@@ -22,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($ShareName)) {
 
 $Namespace = "devcontainer-$Username"
 $StorageClassName = "devcontainer-azurefile-mi-$Username"
-$ManifestsDir = Join-Path $PSScriptRoot '..' | Join-Path -ChildPath 'manifests'
+$ManifestsDir = Join-Path $PSScriptRoot '..' | Join-Path -ChildPath '..' | Join-Path -ChildPath 'devcontainer' | Join-Path -ChildPath 'manifests'
 $ManifestsDir = [System.IO.Path]::GetFullPath($ManifestsDir)
 
 function Fail {
