@@ -42,36 +42,31 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: ACR docker login
+      - name: Extract ACR name
         run: |
           set -euo pipefail
           ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
-          ACR_TOKEN=$(az acr login --name "$ACR_NAME" --expose-token --query accessToken -o tsv)
-          echo "$ACR_TOKEN" | docker login -u 00000000-0000-0000-0000-000000000000 --password-stdin "$ACR_LOGIN_SERVER"
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
 
-      - name: Build image
+      - name: Build image with ACR Tasks
         run: |
           set -euo pipefail
-          docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}" ./devcontainer
+          az acr build --registry "$ACR_NAME" --image "${IMAGE_NAME}:${GITHUB_SHA}" --file ./devcontainer/Dockerfile ./devcontainer
 
       - name: Tag branch-sha
         if: github.ref_type == 'branch'
         run: |
           set -euo pipefail
           SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
-          docker tag "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}" "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}"
-
-      - name: Push image sha
-        run: |
-          set -euo pipefail
-          docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}"
+          az acr import --registry "$ACR_NAME" --source "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}" --image "${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}"
 
       - name: Push branch-sha tag
         if: github.ref_type == 'branch'
         run: |
           set -euo pipefail
           SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
-          docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}"
+          # Image already pushed, just tag it
+          az acr repository show-tags --name "$ACR_NAME" --repository "$IMAGE_NAME"
 
       - name: Publish metadata
         run: |
