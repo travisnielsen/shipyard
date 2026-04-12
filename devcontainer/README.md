@@ -7,10 +7,11 @@ This folder contains a deployable package for remote development workspaces — 
 - `Dockerfile`: base image with common dev tools and the `code` CLI for tunnels.
 - `scripts/start-vscode-server.sh`: entrypoint — runs `idle` (default) or `code tunnel` depending on `START_MODE`.
 - `scripts/healthcheck.sh`: readiness probe, mode-aware.
-- `scripts/provision-workspace.sh`: per-user AKS namespace provisioning.
-- `scripts/provision-workspace.ps1`: PowerShell equivalent of the per-user AKS provisioning flow.
-- `scripts/deprovision-workspace.sh`: per-user AKS namespace teardown.
-- `scripts/deprovision-workspace.ps1`: PowerShell equivalent of the per-user AKS teardown flow.
+- Control-plane lifecycle scripts now live in `../ops/scripts/`:
+  - `ops/scripts/provision-workspace.sh`
+  - `ops/scripts/provision-workspace.ps1`
+  - `ops/scripts/deprovision-workspace.sh`
+  - `ops/scripts/deprovision-workspace.ps1`
 - `manifests/`: Kubernetes manifests (namespace, MI-backed StorageClass template, PVC, Deployment, quotas).
 
 ## Build
@@ -62,13 +63,13 @@ Open the printed `vscode.dev` URL in VS Code (Remote - Tunnels extension) or a b
 For private AKS clusters, run provisioning from the private dev VM (or another host with private network + DNS access to the AKS API endpoint).
 
 ```bash
-./scripts/provision-workspace.sh <username> <storage-resource-group> <storage-account-name>
+../ops/scripts/provision-workspace.sh <username> <storage-resource-group> <storage-account-name>
 ```
 
 PowerShell:
 
 ```powershell
-./scripts/provision-workspace.ps1 <username> <storage-resource-group> <storage-account-name>
+../ops/scripts/provision-workspace.ps1 <username> <storage-resource-group> <storage-account-name>
 ```
 
 Fail-fast checks are enforced before provisioning:
@@ -83,20 +84,20 @@ export AKS_RESOURCE_GROUP=<aks-rg>
 export AKS_CLUSTER_NAME=<aks-name>
 ```
 
-Ensure Terraform was deployed with both `workspace_user_group_id` and `workspace_cluster_admin_group_id` set to the correct Entra groups. The helper script `terraform/demo/scripts/create-workspace-group.ps1` can create/reuse each group and print the object ID for the matching Terraform variable.
+Ensure Terraform was deployed with both `workspace_user_group_id` and `workspace_operator_group_id` set to the correct Entra groups. The helper script `ops/scripts/create-workspace-group.ps1` can create/reuse each group and print the object ID for the matching Terraform variable.
 
 ### Teardown
 
 ```bash
-./scripts/deprovision-workspace.sh <username> <storage-account-name>               # keep data
-./scripts/deprovision-workspace.sh <username> <storage-account-name> --delete-data # delete Azure File Share too
+../ops/scripts/deprovision-workspace.sh <username> <storage-account-name>               # keep data
+../ops/scripts/deprovision-workspace.sh <username> <storage-account-name> --delete-data # delete Azure File Share too
 ```
 
 PowerShell:
 
 ```powershell
-./scripts/deprovision-workspace.ps1 <username> <storage-account-name>
-./scripts/deprovision-workspace.ps1 <username> <storage-account-name> -DeleteData
+../ops/scripts/deprovision-workspace.ps1 <username> <storage-account-name>
+../ops/scripts/deprovision-workspace.ps1 <username> <storage-account-name> -DeleteData
 ```
 
 ---
@@ -122,7 +123,7 @@ git push → GitHub Actions
   └─ az acr build --platform linux/amd64 (tagged with SHA + latest)
 
 Per-user provisioning:
-  ./scripts/provision-workspace.sh <username> <storage-rg> <storage-account>
+  ../ops/scripts/provision-workspace.sh <username> <storage-rg> <storage-account>
 ```
 
 The Terraform demo topology provisions the shared infrastructure (VNet, ACR, Key Vault, AKS cluster) via Terraform. Per-user workspaces are lifecycle-managed outside Terraform by the provision/deprovision scripts.

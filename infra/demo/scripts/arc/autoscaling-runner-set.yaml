@@ -1,0 +1,22 @@
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+metadata:
+  name: shipyard-runner-set
+  namespace: arc-runners
+spec:
+  githubConfigUrl: "${ARC_RUNNER_CONFIG_URL}"
+  githubConfigSecret: pre-defined-secret
+  minRunners: ${ARC_RUNNER_MIN_REPLICAS}
+  maxRunners: ${ARC_RUNNER_MAX_REPLICAS}
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.azure.com/agentpool: "${ARC_RUNNER_NODEPOOL_NAME}"
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: github-runner
+          effect: NoSchedule
+      labels:
+        - shipyard-private
+        - aks

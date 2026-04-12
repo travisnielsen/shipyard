@@ -1,0 +1,52 @@
+name: devcontainer-cd-workflow-contract
+version: 1
+summary: Contract for continuous deployment workflow building and publishing devcontainer images to Shipyard ACR.
+
+workflow:
+  filePath: .github/workflows/devcontainer-image-cd.yml
+  runsOn:
+    - self-hosted
+    - linux
+    - shipyard-private
+    - aks
+  triggers:
+    push:
+      paths:
+        - devcontainer/**
+    pull_request:
+      paths:
+        - devcontainer/**
+
+requiredEnv:
+  - AZURE_CLIENT_ID
+  - AZURE_TENANT_ID
+  - AZURE_SUBSCRIPTION_ID
+  - ACR_LOGIN_SERVER
+
+requiredSteps:
+  - azure-login-oidc
+  - build-image-from-devcontainer-context
+  - push-image-to-acr
+  - publish-image-metadata
+
+image:
+  repositoryName: devcontainer/workspace
+  requiredTags:
+    - sha
+  optionalTags:
+    - branch-sha
+
+constraints:
+  - workflow must not trigger when devcontainer path is unchanged
+  - workflow must target the private ARC runner label set provisioned in AKS
+  - publish must fail closed on auth or push permission errors
+  - image destination must use ACR from deployment outputs
+
+validation:
+  successSignals:
+    - image appears in target ACR repository
+    - workflow run links image tag to commit SHA
+  errorSignals:
+    - acr-push-denied
+    - azure-login-failed
+    - invalid-build-context

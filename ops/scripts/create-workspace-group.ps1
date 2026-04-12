@@ -8,7 +8,7 @@ param(
     [string]$MailNickname,
 
     [Parameter(Position = 2)]
-    [ValidateSet('workspace-user', 'workspace-cluster-admin')]
+    [ValidateSet('workspace-user', 'workspace-operator', 'workspace-cluster-admin')]
     [string]$Purpose = 'workspace-user',
 
     [switch]$OutputJson
@@ -22,7 +22,7 @@ function Fail {
     exit 1
 }
 
-function Require-Cmd {
+function Test-CommandAvailable {
     param([string]$CommandName)
     if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
         Fail "Required command not found: $CommandName"
@@ -39,10 +39,10 @@ function Invoke-AzJson {
     return ($output | Out-String | ConvertFrom-Json)
 }
 
-Require-Cmd az
+Test-CommandAvailable az
 
-$terraformVariableName = if ($Purpose -eq 'workspace-cluster-admin') {
-    'workspace_cluster_admin_group_id'
+$terraformVariableName = if ($Purpose -in @('workspace-operator', 'workspace-cluster-admin')) {
+    'workspace_operator_group_id'
 }
 else {
     'workspace_user_group_id'
@@ -87,7 +87,7 @@ if ($OutputJson) {
 }
 
 Write-Host ""
-Write-Host "Developer workspace group ready."
+Write-Host "Workspace group ready."
 Write-Host "Group display name : $GroupDisplayName"
 Write-Host "Group object ID    : $groupId"
 Write-Host "Group purpose      : $Purpose"
