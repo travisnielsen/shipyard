@@ -67,6 +67,7 @@ module "networking" {
     vdi_integration = {
       name             = "snet-${var.prefix}-vdi"
       address_prefixes = [var.subnet_cidrs.vdi_integration]
+      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
     }
     dev_vm = {
       name             = "snet-${var.prefix}-vm"

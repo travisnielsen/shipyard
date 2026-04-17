@@ -1,0 +1,54 @@
+```yaml
+# Terraform Variable Contract: AVD Infrastructure
+# Feature: 002-avd-infrastructure
+# File: infra/avd_variables.tf
+# Updated: 2026-04-16
+
+variables:
+  deploy_avd:
+    type: bool
+    default: false
+    description: >
+      Feature flag. Set to true to provision all AVD resources (host pool,
+      application group, workspace, session host VM, Key Vault). Set to false
+      to cleanly destroy all AVD resources. Has no effect on any other infra
+      resources.
+
+  avd_users_entra_group_id:
+    type: string
+    default: ""
+    required_when: deploy_avd == true
+    description: >
+      Object ID of the Entra ID group whose members will be granted the
+      'Desktop Virtualization User' role on the AVD Application Group. Members
+      of this group can sign in and receive a desktop session. Must be a valid
+      Entra ID group Object ID (GUID format) in the same tenant.
+    validation:
+      condition: >
+        (!var.deploy_avd && var.avd_users_entra_group_id == "") ||
+        (var.deploy_avd && can(regex("^[0-9a-fA-F-]{36}$", var.avd_users_entra_group_id)))
+      error_message: avd_users_entra_group_id must be a valid GUID when deploy_avd is true.
+
+  avd_session_host_count:
+    type: number
+    default: 1
+    description: >
+      Number of session host VMs to provision in the host pool. For the demo
+      environment, 1 is the recommended value. Increase for multi-user
+      scenarios.
+    validation:
+      condition: var.avd_session_host_count >= 1
+      error_message: avd_session_host_count must be >= 1.
+
+  avd_session_host_sku:
+    type: string
+    default: "Standard_D2s_v5"
+    description: >
+      Azure VM SKU for session host VMs. Must have >= 8 GB RAM. Default is
+      Standard_D2s_v5 (2 vCPUs, 8 GB RAM) — the cost-optimised demo SKU.
+      Change only if a higher-spec SKU is needed.
+    validation:
+      condition: >
+        contains(["Standard_D2s_v5", "Standard_D2as_v5", "Standard_B2ms"], var.avd_session_host_sku)
+      error_message: avd_session_host_sku must be one of Standard_D2s_v5, Standard_D2as_v5, or Standard_B2ms.
+```

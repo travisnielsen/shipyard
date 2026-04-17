@@ -1,15 +1,17 @@
+# Terraform packaging and artifact exclusions
 .terraform/
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.*
-*.tfplan
 *.tfvars
+*.tfvars.json
+*.tfplan
 crash.log
 *.log
-*.pid
 .DS_Store
 Thumbs.db
 *.tmp
 *.swp
+.git/
+.vscode/
 .idea/
-*.pem

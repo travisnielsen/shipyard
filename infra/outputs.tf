@@ -122,3 +122,13 @@ output "arc_bootstrap_execution_mode" {
   value       = var.arc_bootstrap_execution_mode
   description = "Configured ARC bootstrap execution mode."
 }
+
+output "avd_workspace_url" {
+  value       = var.deploy_avd ? try(module.avd_workspace[0].resource.workspace_url, "https://client.wvd.microsoft.com/arm/webclient/") : null
+  description = "AVD workspace feed URL or web client URL for end-user sign-in."
+}
+
+output "avd_keyvault_name" {
+  value       = var.deploy_avd ? module.avd_key_vault[0].name : null
+  description = "Name of the dedicated Key Vault storing generated AVD session host admin secrets."
+}
