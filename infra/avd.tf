@@ -20,7 +20,9 @@ locals {
 
     $vsCodeInstaller = "C:\\Windows\\Temp\\vscode-installer.exe"
     $azCliInstaller = "C:\\Windows\\Temp\\azure-cli.msi"
-    $python313Installer = "C:\\Windows\\Temp\\python-3.13-installer.exe"
+    $kubectlDir = "$env:ProgramFiles\\kubectl"
+    $kubectlVersion = Invoke-RestMethod -Uri "https://dl.k8s.io/release/stable-1.34.txt"
+    $kubectlExe = Join-Path $kubectlDir "kubectl.exe"
     $rdAgentInstaller = "C:\\Windows\\Temp\\avd-rdagent.msi"
     $bootLoaderInstaller = "C:\\Windows\\Temp\\avd-bootloader.msi"
 
@@ -30,8 +32,16 @@ locals {
     Invoke-WebRequest -Uri "https://aka.ms/installazurecliwindows" -OutFile $azCliInstaller
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$azCliInstaller`" /qn /norestart" -Wait
 
-    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.13.0/python-3.13.0-amd64.exe" -OutFile $python313Installer
-    Start-Process -FilePath $python313Installer -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1" -Wait
+    New-Item -ItemType Directory -Path $kubectlDir -Force | Out-Null
+    Invoke-WebRequest -Uri "https://dl.k8s.io/release/$kubectlVersion/bin/windows/amd64/kubectl.exe" -OutFile $kubectlExe
+    if (-not (([System.Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') -contains $kubectlDir)) {
+      [System.Environment]::SetEnvironmentVariable(
+        "Path",
+        ([System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + $kubectlDir),
+        "Machine"
+      )
+    }
+    $env:Path = "$kubectlDir;$env:Path"
 
     Invoke-WebRequest -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv" -OutFile $rdAgentInstaller
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$rdAgentInstaller`" /qn /norestart REGISTRATIONTOKEN=$RegistrationToken" -Wait
@@ -39,7 +49,7 @@ locals {
     Invoke-WebRequest -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrxrH" -OutFile $bootLoaderInstaller
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$bootLoaderInstaller`" /qn /norestart" -Wait
 
-    Remove-Item -Path $vsCodeInstaller, $azCliInstaller, $python313Installer, $rdAgentInstaller, $bootLoaderInstaller -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $vsCodeInstaller, $azCliInstaller, $rdAgentInstaller, $bootLoaderInstaller -Force -ErrorAction SilentlyContinue
   POWERSHELL
 
   avd_tools_install_script_b64 = base64encode(local.avd_tools_install_script)
