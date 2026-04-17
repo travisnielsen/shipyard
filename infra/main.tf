@@ -35,8 +35,9 @@ moved {
 }
 
 module "networking" {
-  source  = "Azure/avm-res-network-virtualnetwork/azurerm"
-  version = "0.17.1"
+  source           = "Azure/avm-res-network-virtualnetwork/azurerm"
+  version          = "0.17.1"
+  enable_telemetry = false
 
   name          = "vnet-${var.prefix}"
   location      = var.location
@@ -46,38 +47,50 @@ module "networking" {
 
   subnets = {
     infra = {
-      name             = "snet-${var.prefix}-infra"
-      address_prefixes = [var.subnet_cidrs.infra]
+      name                            = "snet-${var.prefix}-infra"
+      address_prefix                  = var.subnet_cidrs.infra
+      service_endpoints_with_location = []
     }
     aks_nodes = {
       name                              = "snet-${var.prefix}-aks"
-      address_prefixes                  = [var.subnet_cidrs.aks_nodes]
+      address_prefix                    = var.subnet_cidrs.aks_nodes
       nat_gateway                       = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      network_security_group            = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-aks-nsg-${var.location}" }
       private_endpoint_network_policies = "Disabled"
+      service_endpoints_with_location   = []
     }
     acr_tasks = {
-      name             = "snet-${var.prefix}-acr-tasks"
-      address_prefixes = [var.subnet_cidrs.acr_tasks]
-      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      name                            = "snet-${var.prefix}-acr-tasks"
+      address_prefix                  = var.subnet_cidrs.acr_tasks
+      nat_gateway                     = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      service_endpoints_with_location = []
     }
     private_endpoints = {
       name                              = "snet-${var.prefix}-pep"
-      address_prefixes                  = [var.subnet_cidrs.private_endpoints]
+      address_prefix                    = var.subnet_cidrs.private_endpoints
+      network_security_group            = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-pep-nsg-${var.location}" }
       private_endpoint_network_policies = "Disabled"
+      service_endpoints_with_location   = []
     }
     vdi_integration = {
-      name             = "snet-${var.prefix}-vdi"
-      address_prefixes = [var.subnet_cidrs.vdi_integration]
-      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      name                            = "snet-${var.prefix}-vdi"
+      address_prefix                  = var.subnet_cidrs.vdi_integration
+      nat_gateway                     = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      network_security_group          = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-vdi-nsg-${var.location}" }
+      service_endpoints_with_location = []
     }
     dev_vm = {
-      name             = "snet-${var.prefix}-vm"
-      address_prefixes = [var.subnet_cidrs.dev_vm]
-      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      name                            = "snet-${var.prefix}-vm"
+      address_prefix                  = var.subnet_cidrs.dev_vm
+      nat_gateway                     = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      network_security_group          = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-vm-nsg-${var.location}" }
+      service_endpoints_with_location = []
     }
     bastion = {
-      name             = "AzureBastionSubnet"
-      address_prefixes = [var.subnet_cidrs.bastion]
+      name                            = "AzureBastionSubnet"
+      address_prefix                  = var.subnet_cidrs.bastion
+      network_security_group          = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-AzureBastionSubnet-nsg-${var.location}" }
+      service_endpoints_with_location = []
     }
   }
 }
@@ -92,6 +105,15 @@ resource "azurerm_public_ip" "workload_nat" {
   allocation_method   = "Static"
   sku                 = "Standard"
   tags                = var.tags
+
+  lifecycle {
+    # Azure may surface provider-computed values with shape drift (null vs []),
+    # which can otherwise force replacement of Public IPs and dependent resources.
+    ignore_changes = [
+      ip_tags,
+      zones,
+    ]
+  }
 }
 
 resource "azurerm_nat_gateway" "workload" {
@@ -141,8 +163,9 @@ resource "azurerm_windows_virtual_machine" "dev_vm" {
   ]
 
   os_disk {
-    caching              = "ReadWrite"
-    storage_account_type = "Premium_LRS"
+    caching = "ReadWrite"
+    # Keep test VM non-disruptive during drift reconciliation; Premium would force replacement.
+    storage_account_type = "Standard_LRS"
   }
 
   source_image_reference {
@@ -169,6 +192,14 @@ resource "azurerm_public_ip" "bastion" {
   allocation_method   = "Static"
   sku                 = "Standard"
   tags                = var.tags
+
+  lifecycle {
+    # Prevent forced replacement churn from Azure/provider normalization-only drift.
+    ignore_changes = [
+      ip_tags,
+      zones,
+    ]
+  }
 }
 
 resource "azurerm_bastion_host" "workload" {
@@ -195,8 +226,9 @@ resource "azurerm_bastion_host" "workload" {
 }
 
 module "private_dns_acr" {
-  source  = "Azure/avm-res-network-privatednszone/azurerm"
-  version = "0.5.0"
+  source           = "Azure/avm-res-network-privatednszone/azurerm"
+  version          = "0.5.0"
+  enable_telemetry = false
 
   domain_name = "privatelink.azurecr.io"
   parent_id   = azurerm_resource_group.this.id
@@ -211,8 +243,9 @@ module "private_dns_acr" {
 }
 
 module "private_dns_keyvault" {
-  source  = "Azure/avm-res-network-privatednszone/azurerm"
-  version = "0.5.0"
+  source           = "Azure/avm-res-network-privatednszone/azurerm"
+  version          = "0.5.0"
+  enable_telemetry = false
 
   domain_name = "privatelink.vaultcore.azure.net"
   parent_id   = azurerm_resource_group.this.id
@@ -227,8 +260,9 @@ module "private_dns_keyvault" {
 }
 
 module "private_dns_storage" {
-  source  = "Azure/avm-res-network-privatednszone/azurerm"
-  version = "0.5.0"
+  source           = "Azure/avm-res-network-privatednszone/azurerm"
+  version          = "0.5.0"
+  enable_telemetry = false
 
   domain_name = "privatelink.file.core.windows.net"
   parent_id   = azurerm_resource_group.this.id
@@ -243,8 +277,9 @@ module "private_dns_storage" {
 }
 
 module "container_registry" {
-  source  = "Azure/avm-res-containerregistry-registry/azurerm"
-  version = "0.5.1"
+  source           = "Azure/avm-res-containerregistry-registry/azurerm"
+  version          = "0.5.1"
+  enable_telemetry = false
 
   name                = lower(substr("${replace(var.prefix, "-", "")}${local.identifier}acr", 0, 50))
   location            = var.location
@@ -287,8 +322,9 @@ resource "azurerm_container_registry_agent_pool" "private_tasks" {
 }
 
 module "key_vault" {
-  source  = "Azure/avm-res-keyvault-vault/azurerm"
-  version = "0.10.2"
+  source           = "Azure/avm-res-keyvault-vault/azurerm"
+  version          = "0.10.2"
+  enable_telemetry = false
 
   name                = lower(substr("${replace(var.prefix, "-", "")}-${local.identifier}kv", 0, 24))
   location            = var.location
@@ -322,15 +358,16 @@ module "key_vault" {
 # ---------------------------------------------------------------------------
 
 resource "azurerm_storage_account" "this" {
-  name                          = lower(substr("${replace(var.prefix, "-", "")}${local.identifier}sa", 0, 24))
-  resource_group_name           = azurerm_resource_group.this.name
-  location                      = var.location
-  account_tier                  = "Standard"
-  account_replication_type      = "LRS"
-  https_traffic_only_enabled    = true
-  min_tls_version               = "TLS1_2"
-  public_network_access_enabled = false
-  shared_access_key_enabled     = false
+  name                            = lower(substr("${replace(var.prefix, "-", "")}${local.identifier}sa", 0, 24))
+  resource_group_name             = azurerm_resource_group.this.name
+  location                        = var.location
+  account_tier                    = "Standard"
+  account_replication_type        = "LRS"
+  allow_nested_items_to_be_public = false
+  https_traffic_only_enabled      = true
+  min_tls_version                 = "TLS1_2"
+  public_network_access_enabled   = false
+  shared_access_key_enabled       = false
 
   network_rules {
     default_action = "Deny"
@@ -364,9 +401,10 @@ resource "azurerm_private_endpoint" "storage_file" {
 }
 
 module "aks" {
-  count   = local.deploy_aks ? 1 : 0
-  source  = "Azure/avm-res-containerservice-managedcluster/azurerm"
-  version = "0.5.3"
+  count            = local.deploy_aks ? 1 : 0
+  source           = "Azure/avm-res-containerservice-managedcluster/azurerm"
+  version          = "0.5.3"
+  enable_telemetry = false
 
   name      = "aks-${var.prefix}-${local.identifier}"
   location  = var.location

@@ -18,49 +18,135 @@ locals {
 
     $ErrorActionPreference = "Stop"
 
-    $vsCodeInstaller     = "C:\\Windows\\Temp\\vscode-installer.exe"
-    $kubectlDir          = "$env:ProgramFiles\\kubectl"
+    $ProgressPreference  = "SilentlyContinue"
+
+    function Download-File {
+      param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [Parameter(Mandatory = $true)]
+        [string]$OutFile,
+        [int]$TimeoutSec = 120,
+        [int]$Retries = 3
+      )
+
+      for ($i = 1; $i -le $Retries; $i++) {
+        try {
+          Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec $TimeoutSec -UseBasicParsing
+          return
+        }
+        catch {
+          if ($i -eq $Retries) {
+            throw "Download failed after $Retries attempts for $Uri. $($_.Exception.Message)"
+          }
+          Start-Sleep -Seconds (5 * $i)
+        }
+      }
+    }
+
+    function Test-VSCodeInstall {
+      param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+      )
+
+      if (-not (Test-Path (Join-Path $InstallRoot "Code.exe"))) {
+        return $false
+      }
+
+      $mainJs = Get-ChildItem -Path $InstallRoot -Filter "main.js" -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like "*resources\\app\\out\\main.js" } |
+        Select-Object -First 1
+
+      return $null -ne $mainJs
+    }
+
+    function Install-VSCode {
+      param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivePath
+      )
+
+      $codeProcesses = Get-Process -Name "Code" -ErrorAction SilentlyContinue
+      if ($codeProcesses) {
+        $codeProcesses | Stop-Process -Force
+      }
+
+      if (Test-Path $InstallRoot) {
+        Remove-Item -Path $InstallRoot -Recurse -Force
+      }
+
+      New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+      Download-File -Uri "https://update.code.visualstudio.com/latest/win32-x64-archive/stable" -OutFile $ArchivePath
+      Expand-Archive -Path $ArchivePath -DestinationPath $InstallRoot -Force
+      Remove-Item -Path $ArchivePath -Force -ErrorAction SilentlyContinue
+
+      if (-not (Test-VSCodeInstall -InstallRoot $InstallRoot)) {
+        throw "VS Code installation is incomplete after reinstall."
+      }
+    }
+
+    $toolsRoot           = "C:\\ProgramData\\Shipyard\\bin"
+    $vsCodeArchive       = "C:\\Windows\\Temp\\vscode.zip"
+    $vsCodeInstallRoot   = "C:\\Program Files\\Microsoft VS Code"
+    $vsCodeBinDir        = Join-Path $vsCodeInstallRoot "bin"
+    $kubectlDir          = Join-Path $toolsRoot "kubectl"
     $kubectlVersion      = Invoke-RestMethod -Uri "https://dl.k8s.io/release/stable-1.34.txt"
     $kubectlExe          = Join-Path $kubectlDir "kubectl.exe"
-    $kubeloginDir        = "$env:ProgramFiles\\kubelogin"
+    $kubeloginDir        = Join-Path $toolsRoot "kubelogin"
     $kubeloginZip        = "C:\\Windows\\Temp\\kubelogin.zip"
     $rdAgentInstaller    = "C:\\Windows\\Temp\\avd-rdagent.msi"
     $bootLoaderInstaller = "C:\\Windows\\Temp\\avd-bootloader.msi"
 
-    # VS Code
-    Invoke-WebRequest -Uri "https://update.code.visualstudio.com/latest/win32-x64/stable" -OutFile $vsCodeInstaller
-    Start-Process -FilePath $vsCodeInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/MERGETASKS=!runcode" -Wait
-
-    # kubectl
+    New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $kubectlDir -Force | Out-Null
-    Invoke-WebRequest -Uri "https://dl.k8s.io/release/$kubectlVersion/bin/windows/amd64/kubectl.exe" -OutFile $kubectlExe
-
-    # kubelogin (Entra auth plugin — no az CLI required, use --login interactive)
     New-Item -ItemType Directory -Path $kubeloginDir -Force | Out-Null
-    Invoke-WebRequest -Uri "https://github.com/Azure/kubelogin/releases/latest/download/kubelogin-win-amd64.zip" -OutFile $kubeloginZip
-    Expand-Archive -Path $kubeloginZip -DestinationPath $kubeloginDir -Force
-    # binary is nested under bin/windows_amd64/kubelogin.exe inside the archive
-    $nested = Join-Path $kubeloginDir "bin\\windows_amd64\\kubelogin.exe"
-    if (Test-Path $nested) {
-      Move-Item -Path $nested -Destination (Join-Path $kubeloginDir "kubelogin.exe") -Force
+
+    # Repair partially installed VS Code builds before continuing with the rest of bootstrap.
+    if (-not (Test-VSCodeInstall -InstallRoot $vsCodeInstallRoot)) {
+      Install-VSCode -InstallRoot $vsCodeInstallRoot -ArchivePath $vsCodeArchive
     }
-    Remove-Item -Path $kubeloginZip -Force -ErrorAction SilentlyContinue
+
+    if (-not (Test-Path $kubectlExe)) {
+      Download-File -Uri "https://dl.k8s.io/release/$kubectlVersion/bin/windows/amd64/kubectl.exe" -OutFile $kubectlExe
+    }
+
+    $kubeloginExe = Join-Path $kubeloginDir "kubelogin.exe"
+    if (-not (Test-Path $kubeloginExe)) {
+      Download-File -Uri "https://github.com/Azure/kubelogin/releases/latest/download/kubelogin-win-amd64.zip" -OutFile $kubeloginZip
+      Expand-Archive -Path $kubeloginZip -DestinationPath $kubeloginDir -Force
+      $nested = Join-Path $kubeloginDir "bin\\windows_amd64\\kubelogin.exe"
+      if (Test-Path $nested) {
+        Move-Item -Path $nested -Destination $kubeloginExe -Force
+      }
+      Remove-Item -Path $kubeloginZip -Force -ErrorAction SilentlyContinue
+    }
+
+    # Put kubectl and kubelogin in VS Code's existing bin directory so the Kubernetes extension
+    # can resolve them from the PATH it inherits when launching Code.
+    Copy-Item -Path $kubectlExe -Destination (Join-Path $vsCodeBinDir "kubectl.exe") -Force
+    Copy-Item -Path $kubeloginExe -Destination (Join-Path $vsCodeBinDir "kubelogin.exe") -Force
 
     # Add kubectl and kubelogin to system PATH
     $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-    $additions   = @($kubectlDir, $kubeloginDir) | Where-Object { ($machinePath -split ';') -notcontains $_ }
+    $additions   = @($toolsRoot, $kubectlDir, $kubeloginDir, $vsCodeBinDir) | Where-Object { ($machinePath -split ';') -notcontains $_ }
     if ($additions) {
       [System.Environment]::SetEnvironmentVariable("Path", ($machinePath + ";" + ($additions -join ";")), "Machine")
     }
 
-    # AVD agents
-    Invoke-WebRequest -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv" -OutFile $rdAgentInstaller
-    Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$rdAgentInstaller`" /qn /norestart REGISTRATIONTOKEN=$RegistrationToken" -Wait
+    $rdAgentService = Get-Service -Name "RDAgent" -ErrorAction SilentlyContinue
+    $bootLoaderService = Get-Service -Name "RDAgentBootLoader" -ErrorAction SilentlyContinue
+    if ($null -eq $rdAgentService -or $null -eq $bootLoaderService) {
+      Download-File -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv" -OutFile $rdAgentInstaller
+      Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$rdAgentInstaller`" /qn /norestart REGISTRATIONTOKEN=$RegistrationToken" -Wait
 
-    Invoke-WebRequest -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrxrH" -OutFile $bootLoaderInstaller
-    Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$bootLoaderInstaller`" /qn /norestart" -Wait
+      Download-File -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrxrH" -OutFile $bootLoaderInstaller
+      Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$bootLoaderInstaller`" /qn /norestart" -Wait
+    }
 
-    Remove-Item -Path $vsCodeInstaller, $rdAgentInstaller, $bootLoaderInstaller -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $vsCodeArchive, $rdAgentInstaller, $bootLoaderInstaller -Force -ErrorAction SilentlyContinue
   POWERSHELL
 
   avd_tools_install_script_b64 = base64encode(local.avd_tools_install_script)
@@ -81,8 +167,9 @@ resource "random_password" "avd_admin_password" {
 module "avd_key_vault" {
   count = var.deploy_avd ? 1 : 0
 
-  source  = "Azure/avm-res-keyvault-vault/azurerm"
-  version = "0.10.2"
+  source           = "Azure/avm-res-keyvault-vault/azurerm"
+  version          = "0.10.2"
+  enable_telemetry = false
 
   name                = local.avd_key_vault_name
   location            = var.location
@@ -145,6 +232,18 @@ resource "terraform_data" "avd_admin_password_secret" {
   ]
 }
 
+# Required for start_vm_on_connect: allows the AVD service to power on deallocated session hosts.
+# The Azure Virtual Desktop first-party SP (app ID 9cdead84-a844-4324-93f2-b2e6bb768d07) needs
+# Desktop Virtualization Power On Contributor at the resource group scope.
+resource "azurerm_role_assignment" "avd_power_on_contributor" {
+  count = var.deploy_avd ? 1 : 0
+
+  scope                = azurerm_resource_group.this.id
+  role_definition_name = "Desktop Virtualization Power On Contributor"
+  principal_id         = "c593113c-48df-45ed-8fbb-74e301fc67df" # Azure Virtual Desktop SP
+  principal_type       = "ServicePrincipal"
+}
+
 resource "azurerm_role_assignment" "avd_vm_user_login" {
   for_each = local.avd_session_hosts
 
@@ -166,13 +265,15 @@ module "avd_host_pool" {
   virtual_desktop_host_pool_resource_group_name = azurerm_resource_group.this.name
   virtual_desktop_host_pool_type                = "Pooled"
   virtual_desktop_host_pool_load_balancer_type  = "BreadthFirst"
+  enable_telemetry                              = false
 
   registration_expiration_period                     = "48h"
   virtual_desktop_host_pool_maximum_sessions_allowed = 16
   virtual_desktop_host_pool_start_vm_on_connect      = true
   virtual_desktop_host_pool_custom_rdp_properties = {
     custom_properties = {
-      targetisaadjoined = "i:1"
+      # Azure persists this string with a trailing semicolon; include it to avoid serialization drift.
+      targetisaadjoined = "i:1;"
       enablerdsaadauth  = "i:1"
     }
   }
@@ -183,8 +284,9 @@ module "avd_host_pool" {
 module "avd_application_group" {
   count = var.deploy_avd ? 1 : 0
 
-  source  = "Azure/avm-res-desktopvirtualization-applicationgroup/azurerm"
-  version = "0.2.1"
+  source           = "Azure/avm-res-desktopvirtualization-applicationgroup/azurerm"
+  version          = "0.2.1"
+  enable_telemetry = false
 
   virtual_desktop_application_group_name                = local.avd_application_group_name
   virtual_desktop_application_group_location            = var.location
@@ -207,8 +309,9 @@ module "avd_application_group" {
 module "avd_workspace" {
   count = var.deploy_avd ? 1 : 0
 
-  source  = "Azure/avm-res-desktopvirtualization-workspace/azurerm"
-  version = "0.2.2"
+  source           = "Azure/avm-res-desktopvirtualization-workspace/azurerm"
+  version          = "0.2.2"
+  enable_telemetry = false
 
   virtual_desktop_workspace_name                = local.avd_workspace_name
   virtual_desktop_workspace_location            = var.location
@@ -227,8 +330,9 @@ resource "azurerm_virtual_desktop_workspace_application_group_association" "avd"
 module "avd_session_host" {
   for_each = local.avd_session_hosts
 
-  source  = "Azure/avm-res-compute-virtualmachine/azurerm"
-  version = "0.20.0"
+  source           = "Azure/avm-res-compute-virtualmachine/azurerm"
+  version          = "0.20.0"
+  enable_telemetry = false
 
   name                = "vm${substr(var.prefix, 0, 3)}avdsh${each.key}"
   resource_group_name = azurerm_resource_group.this.name
