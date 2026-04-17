@@ -50,9 +50,10 @@ module "networking" {
       address_prefixes = [var.subnet_cidrs.infra]
     }
     aks_nodes = {
-      name             = "snet-${var.prefix}-aks"
-      address_prefixes = [var.subnet_cidrs.aks_nodes]
-      nat_gateway      = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      name                              = "snet-${var.prefix}-aks"
+      address_prefixes                  = [var.subnet_cidrs.aks_nodes]
+      nat_gateway                       = var.enable_nat_gateway ? { id = azurerm_nat_gateway.workload[0].id } : null
+      private_endpoint_network_policies = "Disabled"
     }
     acr_tasks = {
       name             = "snet-${var.prefix}-acr-tasks"
@@ -524,6 +525,14 @@ resource "azurerm_role_assignment" "aks_storage_account_contributor" {
     try(module.aks[0].kubelet_identity.object_id, null),
     try(module.aks[0].kubelet_identity.objectId, null)
   )
+}
+
+resource "azurerm_role_assignment" "aks_cluster_storage_file_contributor" {
+  count = local.deploy_aks && try(module.aks[0].identity_principal_id, null) != null ? 1 : 0
+
+  scope                = azurerm_storage_account.this.id
+  role_definition_name = "Storage File Data SMB Share Contributor"
+  principal_id         = module.aks[0].identity_principal_id
 }
 
 # ---------------------------------------------------------------------------

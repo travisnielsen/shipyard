@@ -55,13 +55,16 @@ jobs:
       - name: Build image with ACR Tasks
         run: |
           set -euo pipefail
-          EXTRA_IMAGE_ARG=()
+          IMAGE_ARGS=(--image "${IMAGE_NAME}:${GITHUB_SHA}")
           if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
             SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
-            EXTRA_IMAGE_ARG=(--image "${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}")
+            IMAGE_ARGS+=(--image "${IMAGE_NAME}:${SAFE_BRANCH}-${GITHUB_SHA}")
+          fi
+          if [[ "${GITHUB_REF_NAME}" == "main" && "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            IMAGE_ARGS+=(--image "${IMAGE_NAME}:latest")
           fi
 
-          az acr build --registry "$ACR_NAME" --resource-group "$ACR_RESOURCE_GROUP" --agent-pool "$ACR_TASK_AGENTPOOL_NAME" --image "${IMAGE_NAME}:${GITHUB_SHA}" "${EXTRA_IMAGE_ARG[@]}" --file ./devcontainer/Dockerfile ./devcontainer
+          az acr build --registry "$ACR_NAME" --resource-group "$ACR_RESOURCE_GROUP" --agent-pool "$ACR_TASK_AGENTPOOL_NAME" "${IMAGE_ARGS[@]}" --file ./devcontainer/Dockerfile ./devcontainer
 
       - name: Push branch-sha tag
         if: github.ref_type == 'branch'
@@ -74,3 +77,6 @@ jobs:
       - name: Publish metadata
         run: |
           echo "image=${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${GITHUB_REF_NAME}" == "main" && "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            echo "latest=${ACR_LOGIN_SERVER}/${IMAGE_NAME}:latest" >> "$GITHUB_STEP_SUMMARY"
+          fi

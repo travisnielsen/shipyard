@@ -67,6 +67,32 @@ function Test-KubectlCanGet {
     }
 }
 
+function Wait-DeploymentAvailable {
+    param(
+        [string]$Namespace,
+        [string]$DeploymentName,
+        [int]$TimeoutSeconds = 240
+    )
+    $result = & kubectl rollout status deployment/$DeploymentName -n $Namespace --timeout="${TimeoutSeconds}s" 2>&1
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Show-WorkspaceDiagnostics {
+    param(
+        [string]$Namespace,
+        [string]$StorageClassName
+    )
+    Write-Host ''
+    Write-Host '--- Diagnostics ---'
+    Write-Host "Pods in $Namespace :"
+    & kubectl get pods -n $Namespace -o wide 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Write-Host "Events in $Namespace :"
+    & kubectl get events -n $Namespace --sort-by='.lastTimestamp' 2>&1 | Select-Object -Last 15 | ForEach-Object { Write-Host "  $_" }
+    Write-Host "PVC status in $Namespace :"
+    & kubectl get pvc -n $Namespace -o wide 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Write-Host '--- End Diagnostics ---'
+}
+
 Write-Host "==> Provisioning workspace for '$Username' in namespace '$Namespace'"
 Write-Host "    Storage RG      : $StorageResourceGroup"
 Write-Host "    Storage account : $StorageAccountName"
@@ -127,15 +153,27 @@ if ($LASTEXITCODE -ne 0) {
     Fail 'Azure Files CSI driver (file.csi.azure.com) is not available in the current cluster.'
 }
 
-# Dynamic Azure Files provisioning requires the controller deployment.
+# Dynamic Azure Files provisioning requires the controller — either as a
+# standalone deployment (AKS < 1.34) or embedded in the node DaemonSet
+# (AKS >= 1.34 controllerless model).
 $azureFileController = & kubectl get deployment csi-azurefile-controller -n kube-system -o name 2>&1
 if ($LASTEXITCODE -ne 0) {
     $controllerError = ($azureFileController | Out-String)
     if ($controllerError -match 'NotFound|not found') {
-        Fail "Azure File CSI controller deployment is missing (csi-azurefile-controller in kube-system). Dynamic Azure Files provisioning will not work until this AKS addon issue is resolved."
+        # AKS 1.34+ uses a controllerless model where the controller
+        # sidecar runs inside the csi-azurefile-node DaemonSet pods.
+        $nodeDs = & kubectl get daemonset csi-azurefile-node -n kube-system -o jsonpath='{.status.numberReady}' 2>&1
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($nodeDs | Out-String).Trim()) -or (($nodeDs | Out-String).Trim() -eq '0')) {
+            Fail "Azure File CSI controller deployment is missing and the csi-azurefile-node DaemonSet has no ready pods. Dynamic Azure Files provisioning will not work until this AKS addon issue is resolved."
+        }
+        Write-Host "    [3/7] Azure File CSI controller running in node DaemonSet (controllerless mode)..."
     }
-
-    Write-Host "WARNING: Could not verify csi-azurefile-controller deployment due to: $controllerError"
+    else {
+        Write-Host "WARNING: Could not verify csi-azurefile-controller deployment due to: $controllerError"
+    }
+}
+else {
+    Write-Host "    [3/7] Azure File CSI controller deployment verified..."
 }
 
 Write-Host "    [4/7] Discovering AKS cluster..."
