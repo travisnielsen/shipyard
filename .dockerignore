@@ -1,0 +1,15 @@
+# Keep Docker build contexts minimal and avoid leaking repo internals.
+.git/
+.gitignore
+.dockerignore
+**/.DS_Store
+**/Thumbs.db
+**/*.log
+**/.env*
+**/*.tfstate*
+**/*.tfvars
+**/.terraform/
+**/node_modules/
+**/coverage/
+**/dist/
+**/build/

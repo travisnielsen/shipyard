@@ -68,3 +68,14 @@ Before `terraform plan`, create (or resolve) the Entra groups used for workspace
 - Bootstrap script path: `infra/scripts/util_vm_setup_choco.ps1`.
 - Required variable: `dev_vm_admin_password`.
 - Connect using Azure Bastion (RDP over TLS) to avoid exposing VM public IP.
+
+## Azure Virtual Desktop (AVD) Notes
+
+- AVD deployment is gated by `deploy_avd` (default `false`).
+- Session hosts are Windows 11 multi-session (`win11-25h2-avd`) on `Standard_D2s_v5` by default.
+- Session hosts are deployed to the existing `vdi_integration` subnet with outbound egress via the shared workload NAT gateway.
+- Access is granted to the Entra ID group specified by `avd_users_entra_group_id` using the `Desktop Virtualization User` role on the desktop application group.
+- Session host credentials are generated and stored in a dedicated AVD Key Vault.
+- Key outputs:
+  - `avd_workspace_url`
+  - `avd_keyvault_name`

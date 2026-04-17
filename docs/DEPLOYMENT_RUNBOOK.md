@@ -318,6 +318,58 @@ terraform destroy
 - `az acr build` fails with `403 Forbidden` while logging into registry:
   - Verify ACR trusted-services bypass is enabled (`network_rule_bypass_option = "AzureServices"`).
   - Verify caller has `AcrPush` on the registry.
+
+## 11. Azure Virtual Desktop (AVD) Deployment and Operations
+
+### 11.1 Configure AVD Variables
+
+From `infra/terraform.tfvars`, set:
+
+```hcl
+deploy_avd               = true
+avd_users_entra_group_id = "<entra-group-object-id>"
+# Optional:
+# avd_session_host_count = 1
+# avd_session_host_sku   = "Standard_D2s_v5"
+```
+
+### 11.2 Deploy AVD
+
+```bash
+cd infra
+terraform init
+terraform validate
+terraform plan -out avd.tfplan
+terraform apply avd.tfplan
+```
+
+During `terraform apply`, the deployment temporarily enables public access on the dedicated AVD Key Vault, provisions the AVD admin password secret(s), and then disables public access again. This keeps the flow single-stage for demo purposes while preserving a private-only final state.
+
+### 11.3 Retrieve Endpoints and Secrets
+
+```bash
+terraform output avd_workspace_url
+terraform output -raw avd_keyvault_name
+```
+
+AVD users connect through the workspace URL with same-tenant Entra ID credentials.
+
+### 11.4 Operational Validation
+
+- Verify authorized user can connect.
+- Verify non-assigned user is denied.
+- Verify `az --version` and `code .` are available after connect and after host restart.
+- Verify no public IP exists on AVD session hosts.
+
+### 11.5 AVD-Only Tear Down
+
+```bash
+cd infra
+terraform apply -var="deploy_avd=false"
+```
+
+This removes AVD resources while retaining shared platform infrastructure.
+
 - Storage mount issues:
   - Confirm storage account outputs used in provisioning scripts are correct.
 

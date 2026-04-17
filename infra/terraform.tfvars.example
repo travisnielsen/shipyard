@@ -16,6 +16,10 @@ subnet_cidrs = {
 
 deploy_test_vm                  = true
 enable_nat_gateway              = true
+deploy_avd                      = false
+avd_users_entra_group_id        = "00000000-0000-0000-0000-000000000000"
+avd_session_host_count          = 1
+avd_session_host_sku            = "Standard_D2s_v5"
 enable_private_acr_tasks        = true
 acr_task_agentpool_name         = "arcbuild"
 acr_task_agentpool_tier         = "S2"
