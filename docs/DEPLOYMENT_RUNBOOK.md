@@ -260,6 +260,8 @@ az aks get-credentials \
 > Always pass `--format exec` so the kubeconfig references the `kubelogin` credential plugin.
 > For distributing kubeconfig to AVD/VDI users, see Section 11.5.
 
+For end-user/developer onboarding steps on VDI (required extensions, kubeconfig placement, `kubelogin` authentication with `devicecode` or `interactive`, namespace switching, and VS Code attach flow), see [AKS DevContainer Onboarding](AKS_DEVCONTAINER_ONBOARDING.md).
+
 If your Azure context contains multiple AKS clusters, set explicit selectors before provisioning:
 
 ```bash

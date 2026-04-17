@@ -14,6 +14,8 @@ The scaffold includes two core parts:
 
 For step-by-step deployment and operations instructions, see the [Deployment Runbook](docs/DEPLOYMENT_RUNBOOK.md).
 
+For end-user and developer connection instructions (extensions, kubeconfig placement, kubelogin auth options, namespace selection, and remote attach flow), see [AKS DevContainer Onboarding](docs/AKS_DEVCONTAINER_ONBOARDING.md).
+
 ## Repository Layout
 
 ```text
