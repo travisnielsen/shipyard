@@ -245,12 +245,20 @@ az role assignment create \
 
 Run this from the private dev VM (or another host with private network + DNS access to the AKS API endpoint).
 
+**Operator / script use** (az CLI + local accounts not required — uses kubelogin exec plugin):
+
 ```bash
 az aks get-credentials \
   --resource-group "<resource-group>" \
   --name "<aks-cluster-name>" \
+  --format exec \
   --overwrite-existing
 ```
+
+> [!Note]
+> This cluster has local accounts disabled and uses managed Entra authentication with Azure RBAC.
+> Always pass `--format exec` so the kubeconfig references the `kubelogin` credential plugin.
+> For distributing kubeconfig to AVD/VDI users, see Section 11.5.
 
 If your Azure context contains multiple AKS clusters, set explicit selectors before provisioning:
 
@@ -358,10 +366,62 @@ AVD users connect through the workspace URL with same-tenant Entra ID credential
 
 - Verify authorized user can connect.
 - Verify non-assigned user is denied.
-- Verify `az --version` and `code .` are available after connect and after host restart.
+- Verify `kubectl version --client` and `kubelogin --version` are available in a new terminal after first connect.
 - Verify no public IP exists on AVD session hosts.
 
-### 11.5 AVD-Only Tear Down
+### 11.5 Generate and Distribute Developer Kubeconfig
+
+The VDI has no Azure CLI. The operator generates an exec-format kubeconfig from the utility VM and distributes it to each developer.
+
+**Run on the utility/dev VM (operator step):**
+
+```bash
+AKS_RG="rg-shipyard"
+AKS_NAME=$(cd infra && terraform output -raw aks_cluster_name)
+DEVELOPER_UPN="<developer-upn>"   # e.g. hinglemc@contoso.onmicrosoft.com
+
+az aks get-credentials \
+  --resource-group "$AKS_RG" \
+  --name "$AKS_NAME" \
+  --format exec \
+  --file ./kubeconfig-"${DEVELOPER_UPN%%@*}".yaml \
+  --overwrite-existing
+```
+
+> [!Important]
+> `--format exec` produces a kubeconfig that uses `kubelogin` as a credential plugin.
+> Do **not** use the default (certificate) format — local accounts are disabled on this cluster.
+
+**Deliver the file to the developer.** The recommended path is a shared Azure File share or secure email. The developer places it at:
+
+```
+C:\Users\<username>\.kube\config
+```
+
+If the developer already has a kubeconfig, they can merge entries:
+
+```powershell
+$env:KUBECONFIG = "$env:USERPROFILE\.kube\config;$env:USERPROFILE\Downloads\kubeconfig-<name>.yaml"
+kubectl config view --flatten | Out-File -Encoding utf8 "$env:USERPROFILE\.kube\config"
+$env:KUBECONFIG = ""
+```
+
+**First-time developer login (on the VDI):**
+
+```powershell
+kubectl get namespaces
+```
+
+On first run, `kubelogin` launches a browser popup for interactive Entra authentication. Subsequent commands are silent until the token expires.
+
+If the developer environment cannot launch a browser (e.g. headless session), use device-code flow instead:
+
+```powershell
+kubelogin convert-kubeconfig -l devicecode
+kubectl get namespaces
+```
+
+### 11.6 AVD-Only Tear Down
 
 ```bash
 cd infra

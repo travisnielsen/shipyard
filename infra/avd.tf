@@ -18,38 +18,49 @@ locals {
 
     $ErrorActionPreference = "Stop"
 
-    $vsCodeInstaller = "C:\\Windows\\Temp\\vscode-installer.exe"
-    $azCliInstaller = "C:\\Windows\\Temp\\azure-cli.msi"
-    $kubectlDir = "$env:ProgramFiles\\kubectl"
-    $kubectlVersion = Invoke-RestMethod -Uri "https://dl.k8s.io/release/stable-1.34.txt"
-    $kubectlExe = Join-Path $kubectlDir "kubectl.exe"
-    $rdAgentInstaller = "C:\\Windows\\Temp\\avd-rdagent.msi"
+    $vsCodeInstaller     = "C:\\Windows\\Temp\\vscode-installer.exe"
+    $kubectlDir          = "$env:ProgramFiles\\kubectl"
+    $kubectlVersion      = Invoke-RestMethod -Uri "https://dl.k8s.io/release/stable-1.34.txt"
+    $kubectlExe          = Join-Path $kubectlDir "kubectl.exe"
+    $kubeloginDir        = "$env:ProgramFiles\\kubelogin"
+    $kubeloginZip        = "C:\\Windows\\Temp\\kubelogin.zip"
+    $rdAgentInstaller    = "C:\\Windows\\Temp\\avd-rdagent.msi"
     $bootLoaderInstaller = "C:\\Windows\\Temp\\avd-bootloader.msi"
 
+    # VS Code
     Invoke-WebRequest -Uri "https://update.code.visualstudio.com/latest/win32-x64/stable" -OutFile $vsCodeInstaller
     Start-Process -FilePath $vsCodeInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/MERGETASKS=!runcode" -Wait
 
-    Invoke-WebRequest -Uri "https://aka.ms/installazurecliwindows" -OutFile $azCliInstaller
-    Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$azCliInstaller`" /qn /norestart" -Wait
-
+    # kubectl
     New-Item -ItemType Directory -Path $kubectlDir -Force | Out-Null
     Invoke-WebRequest -Uri "https://dl.k8s.io/release/$kubectlVersion/bin/windows/amd64/kubectl.exe" -OutFile $kubectlExe
-    if (-not (([System.Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') -contains $kubectlDir)) {
-      [System.Environment]::SetEnvironmentVariable(
-        "Path",
-        ([System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + $kubectlDir),
-        "Machine"
-      )
-    }
-    $env:Path = "$kubectlDir;$env:Path"
 
+    # kubelogin (Entra auth plugin — no az CLI required, use --login interactive)
+    New-Item -ItemType Directory -Path $kubeloginDir -Force | Out-Null
+    Invoke-WebRequest -Uri "https://github.com/Azure/kubelogin/releases/latest/download/kubelogin-win-amd64.zip" -OutFile $kubeloginZip
+    Expand-Archive -Path $kubeloginZip -DestinationPath $kubeloginDir -Force
+    # binary is nested under bin/windows_amd64/kubelogin.exe inside the archive
+    $nested = Join-Path $kubeloginDir "bin\\windows_amd64\\kubelogin.exe"
+    if (Test-Path $nested) {
+      Move-Item -Path $nested -Destination (Join-Path $kubeloginDir "kubelogin.exe") -Force
+    }
+    Remove-Item -Path $kubeloginZip -Force -ErrorAction SilentlyContinue
+
+    # Add kubectl and kubelogin to system PATH
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $additions   = @($kubectlDir, $kubeloginDir) | Where-Object { ($machinePath -split ';') -notcontains $_ }
+    if ($additions) {
+      [System.Environment]::SetEnvironmentVariable("Path", ($machinePath + ";" + ($additions -join ";")), "Machine")
+    }
+
+    # AVD agents
     Invoke-WebRequest -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv" -OutFile $rdAgentInstaller
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$rdAgentInstaller`" /qn /norestart REGISTRATIONTOKEN=$RegistrationToken" -Wait
 
     Invoke-WebRequest -Uri "https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrxrH" -OutFile $bootLoaderInstaller
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$bootLoaderInstaller`" /qn /norestart" -Wait
 
-    Remove-Item -Path $vsCodeInstaller, $azCliInstaller, $rdAgentInstaller, $bootLoaderInstaller -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $vsCodeInstaller, $rdAgentInstaller, $bootLoaderInstaller -Force -ErrorAction SilentlyContinue
   POWERSHELL
 
   avd_tools_install_script_b64 = base64encode(local.avd_tools_install_script)
