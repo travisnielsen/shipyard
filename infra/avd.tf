@@ -198,14 +198,6 @@ module "avd_key_vault" {
   depends_on = [module.private_dns_keyvault]
 }
 
-resource "azurerm_role_assignment" "avd_keyvault_secrets_officer" {
-  count = var.deploy_avd ? 1 : 0
-
-  scope                = module.avd_key_vault[0].resource_id
-  role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
-}
-
 resource "terraform_data" "avd_admin_password_secret" {
   count = var.deploy_avd ? 1 : 0
 
@@ -230,27 +222,6 @@ resource "terraform_data" "avd_admin_password_secret" {
     module.avd_key_vault,
     azurerm_role_assignment.avd_keyvault_secrets_officer,
   ]
-}
-
-# Required for start_vm_on_connect: allows the AVD service to power on deallocated session hosts.
-# The Azure Virtual Desktop first-party SP (app ID 9cdead84-a844-4324-93f2-b2e6bb768d07) needs
-# Desktop Virtualization Power On Contributor at the resource group scope.
-resource "azurerm_role_assignment" "avd_power_on_contributor" {
-  count = var.deploy_avd ? 1 : 0
-
-  scope                = azurerm_resource_group.this.id
-  role_definition_name = "Desktop Virtualization Power On Contributor"
-  principal_id         = "c593113c-48df-45ed-8fbb-74e301fc67df" # Azure Virtual Desktop SP
-  principal_type       = "ServicePrincipal"
-}
-
-resource "azurerm_role_assignment" "avd_vm_user_login" {
-  for_each = local.avd_session_hosts
-
-  scope                = module.avd_session_host[each.key].resource_id
-  role_definition_name = "Virtual Machine User Login"
-  principal_id         = var.avd_users_entra_group_id
-  principal_type       = "Group"
 }
 
 module "avd_host_pool" {

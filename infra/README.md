@@ -21,7 +21,7 @@ This folder contains a private-network-focused Azure topology that can deploy:
 
 ## AVM Module Versions
 
-All modules are pinned to exact versions. To upgrade, update the `version` constraint in `main.tf`, run `terraform init -upgrade`, and re-validate.
+All modules are pinned to exact versions. To upgrade, update the `version` constraints in the relevant `*.tf` files, run `terraform init -upgrade`, and re-validate.
 
 | Module | Source | Pinned Version | Registry |
 | --- | --- | --- | --- |
