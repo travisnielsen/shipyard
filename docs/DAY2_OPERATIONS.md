@@ -64,6 +64,11 @@ az aks command invoke --resource-group "<resource-group>" --name "<aks-cluster-n
 1. Trigger `.github/workflows/devcontainer-image-cd.yml` with a change under `devcontainer/`.
 2. Re-run user provisioning script to roll updates.
 
+Workspace access control note:
+
+- Provisioning now applies direct user-to-namespace AKS RBAC and share-scoped storage RBAC.
+- Include developer identity (UPN/object ID) when running provision/deprovision scripts so role assignments are created and removed deterministically.
+
 ### 2.2 Devcontainer CD Workflow (GitHub Actions)
 
 Workflow file: `.github/workflows/devcontainer-image-cd.yml`

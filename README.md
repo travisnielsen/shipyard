@@ -1,12 +1,11 @@
-```
-╔═══════════════════════════════════════════════════════════╗
-║                                                           ║
-║        ⚓ S H I P Y A R D ⚓                             ║
-║                                                           ║
-║  Secure, Enterprise-Grade Remote Dev Containers         ║
-║                                                           ║
-╚═══════════════════════════════════════════════════════════╝
-```
+<div align="center">
+
+# SHIPYARD
+
+### Secure, enterprise-grade remote dev containers  
+### Thin-client VDI + managed AKS developer compute
+
+</div>
 
 ## Overview
 
@@ -29,6 +28,7 @@ Shipping heavy developer tools (Docker, language runtimes, build systems, databa
 - VDI becomes a thin client: just a UI and connectivity layer
 - Scales independently from desktop constraints
 - Easier to manage, version, and secure workload environments
+- Access is scoped per user: each workspace runs in a dedicated namespace with user-scoped RBAC to prevent cross-user container access
 
 ### Deployment Scenarios
 

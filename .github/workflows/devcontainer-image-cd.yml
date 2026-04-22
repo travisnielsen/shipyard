@@ -17,7 +17,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ci-build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build devcontainer image
+        run: |
+          set -euo pipefail
+          docker build -f ./devcontainer/Dockerfile -t remote-devcontainer:ci ./devcontainer
+
+      - name: Run tool version smoke tests
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /usr/local/bin/tool-version-smoke-test.sh remote-devcontainer:ci
+
   build-and-push:
+    needs: ci-build-and-smoke
     runs-on:
       - shipyard-runner-set
     env:

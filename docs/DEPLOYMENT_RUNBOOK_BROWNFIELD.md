@@ -80,8 +80,15 @@ For AKS 1.34+ controllerless behavior, also validate the cluster managed identit
 ### 4.3 Workspace User/Operator Access Model
 
 Typical mapping for this repo's workflow:
-- Workspace users: AKS cluster user access + read access to workspace image + share access
+- Workspace users: namespace-scoped AKS RBAC on their own namespace + share-scoped storage access to their own Azure File Share
 - Workspace operators: cluster admin-level access for provisioning and support
+
+This runbook's provisioning scripts now enforce per-user access boundaries without requiring a dedicated Entra group per namespace:
+- `provision-workspace` assigns `Azure Kubernetes Service RBAC Writer` (default, configurable) at scope:
+  - `<aks-resource-id>/namespaces/devcontainer-<username>`
+- `provision-workspace` assigns `Storage File Data SMB Share Contributor` (default, configurable) at scope:
+  - `<storage-account-id>/fileServices/default/fileshares/devcontainer-<username>`
+- `deprovision-workspace` removes those assignments during teardown when developer identity is provided.
 
 ## 5. Storage and Network Requirements
 
@@ -102,7 +109,7 @@ Run the provisioning script:
 
 ```bash
 cd ops/scripts
-./provision-workspace.sh "<username>" "<storage-account-rg>" "<storage-account-name>"
+./provision-workspace.sh "<username>" "<storage-account-rg>" "<storage-account-name>" "devcontainer-<username>" "<developer-upn-or-object-id>"
 ```
 
 What this script does:
@@ -117,6 +124,19 @@ Optional: explicitly set workspace image when auto-discovery is ambiguous.
 
 ```bash
 export DEV_WORKSPACE_IMAGE="<acr-login-server>/remote-devcontainer:latest"
+```
+
+Optional role controls:
+
+```bash
+# Override namespace role (default: Azure Kubernetes Service RBAC Writer)
+export WORKSPACE_AKS_NAMESPACE_ROLE="Azure Kubernetes Service RBAC Writer"
+
+# Override share role (default: Storage File Data SMB Share Contributor)
+export WORKSPACE_STORAGE_ROLE="Storage File Data SMB Share Contributor"
+
+# Disable developer storage assignment if not needed (default: true)
+export ENABLE_WORKSPACE_STORAGE_RBAC="false"
 ```
 
 ## 7. Developer Connection Flow
@@ -149,13 +169,13 @@ cd ops/scripts
 
 ```bash
 cd ops/scripts
-./deprovision-workspace.sh "<username>" "<storage-account-name>"
+./deprovision-workspace.sh "<username>" "<storage-account-name>" --developer-identity "<developer-upn-or-object-id>"
 ```
 
 Delete workspace data as well:
 
 ```bash
-./deprovision-workspace.sh "<username>" "<storage-account-name>" --delete-data
+./deprovision-workspace.sh "<username>" "<storage-account-name>" --developer-identity "<developer-upn-or-object-id>" --delete-data
 ```
 
 ## 9. Brownfield Troubleshooting
