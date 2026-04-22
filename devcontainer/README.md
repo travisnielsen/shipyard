@@ -59,13 +59,26 @@ Open the printed `vscode.dev` URL in VS Code (Remote - Tunnels extension) or a b
 For private AKS clusters, run provisioning from the private dev VM (or another host with private network + DNS access to the AKS API endpoint).
 
 ```bash
-../ops/scripts/provision-workspace.sh <username> <storage-resource-group> <storage-account-name>
+../ops/scripts/provision-workspace.sh <username> <storage-resource-group> <storage-account-name> [<share-name>] <developer-upn-or-object-id>
 ```
 
 PowerShell:
 
 ```powershell
-../ops/scripts/provision-workspace.ps1 <username> <storage-resource-group> <storage-account-name>
+../ops/scripts/provision-workspace.ps1 <username> <storage-resource-group> <storage-account-name> [<share-name>] <developer-upn-or-object-id>
+```
+
+The provisioning scripts assign access directly to the target developer identity:
+
+- Namespace-scoped AKS RBAC (default role: `Azure Kubernetes Service RBAC Writer`) on `devcontainer-<username>`
+- Share-scoped storage RBAC (default role: `Storage File Data SMB Share Contributor`) on `devcontainer-<username>` share
+
+You can override defaults with environment variables:
+
+```bash
+export WORKSPACE_AKS_NAMESPACE_ROLE="Azure Kubernetes Service RBAC Writer"
+export WORKSPACE_STORAGE_ROLE="Storage File Data SMB Share Contributor"
+export ENABLE_WORKSPACE_STORAGE_RBAC="false" # optional, defaults to true
 ```
 
 Fail-fast checks are enforced before provisioning:
@@ -94,15 +107,15 @@ Ensure Terraform was deployed with both `workspace_user_group_id` and `workspace
 ### Teardown
 
 ```bash
-../ops/scripts/deprovision-workspace.sh <username> <storage-account-name>               # keep data
-../ops/scripts/deprovision-workspace.sh <username> <storage-account-name> --delete-data # delete Azure File Share too
+../ops/scripts/deprovision-workspace.sh <username> <storage-account-name> --developer-identity <developer-upn-or-object-id>               # keep data + remove RBAC assignments
+../ops/scripts/deprovision-workspace.sh <username> <storage-account-name> --developer-identity <developer-upn-or-object-id> --delete-data # delete Azure File Share too
 ```
 
 PowerShell:
 
 ```powershell
-../ops/scripts/deprovision-workspace.ps1 <username> <storage-account-name>
-../ops/scripts/deprovision-workspace.ps1 <username> <storage-account-name> -DeleteData
+../ops/scripts/deprovision-workspace.ps1 <username> <storage-account-name> -DeveloperIdentity <developer-upn-or-object-id>
+../ops/scripts/deprovision-workspace.ps1 <username> <storage-account-name> -DeveloperIdentity <developer-upn-or-object-id> -DeleteData
 ```
 
 ---

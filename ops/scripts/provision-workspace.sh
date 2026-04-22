@@ -2,7 +2,7 @@
 # provision-workspace.sh — create an isolated dev workspace namespace for a single user.
 #
 # Usage:
-#   ./provision-workspace.sh <username> <storage-resource-group> <storage-account-name> [<share-name>]
+#   ./provision-workspace.sh <username> <storage-resource-group> <storage-account-name> [<share-name>] [<developer-identity>]
 #
 # What this does:
 #   1. Creates a dedicated namespace:     devcontainer-<username>
@@ -26,10 +26,43 @@ USERNAME="${1:?Usage: $0 <username> <storage-resource-group> <storage-account-na
 STORAGE_RESOURCE_GROUP="${2:?Usage: $0 <username> <storage-resource-group> <storage-account-name> [<share-name>]}"
 STORAGE_ACCOUNT_NAME="${3:?Usage: $0 <username> <storage-resource-group> <storage-account-name> [<share-name>]}"
 SHARE_NAME="${4:-devcontainer-${USERNAME}}"
+DEVELOPER_IDENTITY="${5:-${DEV_WORKSPACE_DEVELOPER_IDENTITY:-}}"
 
 NAMESPACE="devcontainer-${USERNAME}"
 STORAGE_CLASS_NAME="devcontainer-azurefile-mi-${USERNAME}"
 MANIFESTS_DIR="$(cd "$(dirname "$0")/../../devcontainer/manifests" && pwd)"
+
+WORKSPACE_AKS_NAMESPACE_ROLE="${WORKSPACE_AKS_NAMESPACE_ROLE:-Azure Kubernetes Service RBAC Writer}"
+WORKSPACE_STORAGE_ROLE="${WORKSPACE_STORAGE_ROLE:-Storage File Data SMB Share Contributor}"
+ENABLE_WORKSPACE_STORAGE_RBAC="${ENABLE_WORKSPACE_STORAGE_RBAC:-true}"
+
+is_guid() {
+  [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+}
+
+ensure_role_assignment() {
+  local scope="$1"
+  local role_name="$2"
+  local principal_id="$3"
+
+  local existing_count
+  existing_count="$(az role assignment list \
+    --scope "$scope" \
+    --assignee-object-id "$principal_id" \
+    --role "$role_name" \
+    --query 'length(@)' \
+    --output tsv 2>/dev/null || echo 0)"
+
+  if [[ "$existing_count" != "0" ]]; then
+    return 0
+  fi
+
+  az role assignment create \
+    --scope "$scope" \
+    --assignee-object-id "$principal_id" \
+    --role "$role_name" \
+    --output none >/dev/null
+}
 
 require_cmd() {
   local cmd="$1"
@@ -126,6 +159,35 @@ if [[ -z "${AKS_RESOURCE_GROUP:-}" || -z "${AKS_CLUSTER_NAME:-}" ]]; then
   AKS_CLUSTER_NAME="${AKS_DISCOVERED[0]#*|}"
 fi
 
+AKS_RESOURCE_ID="$(az aks show \
+  --resource-group "${AKS_RESOURCE_GROUP}" \
+  --name "${AKS_CLUSTER_NAME}" \
+  --query id \
+  --output tsv 2>/dev/null || true)"
+
+[[ -z "${AKS_RESOURCE_ID}" ]] && \
+  fail "Could not resolve AKS resource ID for ${AKS_RESOURCE_GROUP}/${AKS_CLUSTER_NAME}."
+
+if [[ -z "${DEVELOPER_IDENTITY}" && "${USERNAME}" == *"@"* ]]; then
+  DEVELOPER_IDENTITY="${USERNAME}"
+fi
+
+[[ -z "${DEVELOPER_IDENTITY}" ]] && \
+  fail "Developer identity is required for per-user access control. Pass it as arg 5 (<developer-identity>) or set DEV_WORKSPACE_DEVELOPER_IDENTITY to a user UPN or object ID."
+
+DEVELOPER_OBJECT_ID=""
+DEVELOPER_UPN=""
+if is_guid "${DEVELOPER_IDENTITY}"; then
+  DEVELOPER_OBJECT_ID="${DEVELOPER_IDENTITY}"
+  DEVELOPER_UPN="${DEVELOPER_IDENTITY}"
+else
+  DEVELOPER_OBJECT_ID="$(az ad user show --id "${DEVELOPER_IDENTITY}" --query id --output tsv 2>/dev/null || true)"
+  DEVELOPER_UPN="$(az ad user show --id "${DEVELOPER_IDENTITY}" --query userPrincipalName --output tsv 2>/dev/null || true)"
+fi
+
+[[ -z "${DEVELOPER_OBJECT_ID}" ]] && \
+  fail "Could not resolve developer object ID from '${DEVELOPER_IDENTITY}'. Provide a valid Entra user UPN or object ID."
+
 KUBELET_OBJECT_ID="$(az aks show \
   --resource-group "${AKS_RESOURCE_GROUP}" \
   --name "${AKS_CLUSTER_NAME}" \
@@ -142,6 +204,14 @@ STORAGE_ACCOUNT_ID="$(az storage account show \
 
 [[ -z "${STORAGE_ACCOUNT_ID}" ]] && \
   fail "Could not resolve storage account ${STORAGE_ACCOUNT_NAME} in ${STORAGE_RESOURCE_GROUP}."
+
+echo "    Developer       : ${DEVELOPER_UPN}"
+echo "    AKS user role   : ${WORKSPACE_AKS_NAMESPACE_ROLE}"
+if [[ "${ENABLE_WORKSPACE_STORAGE_RBAC}" == "true" ]]; then
+  echo "    Storage role    : ${WORKSPACE_STORAGE_ROLE} (share scope)"
+else
+  echo "    Storage role    : disabled (ENABLE_WORKSPACE_STORAGE_RBAC=false)"
+fi
 
 echo "    Validating RBAC roles on storage account..."
 REQUIRED_ROLES=("Storage File Data SMB MI Admin" "Storage Account Contributor" "Storage File Data SMB Share Contributor")
@@ -174,6 +244,11 @@ echo ""
 # 1. Namespace
 echo "--> Creating namespace ${NAMESPACE}..."
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+# 1.1 Namespace-scoped AKS RBAC for the target developer
+NAMESPACE_SCOPE="${AKS_RESOURCE_ID}/namespaces/${NAMESPACE}"
+echo "--> Assigning namespace-scoped AKS RBAC for developer..."
+ensure_role_assignment "${NAMESPACE_SCOPE}" "${WORKSPACE_AKS_NAMESPACE_ROLE}" "${DEVELOPER_OBJECT_ID}"
 
 # 2. Enable SMB OAuth for MI-based Azure Files authentication (idempotent)
 echo "--> Enabling SMB OAuth on storage account '${STORAGE_ACCOUNT_NAME}'..."
@@ -226,6 +301,18 @@ sed \
   -e "s/namespace: devcontainers/namespace: ${NAMESPACE}/g" \
   -e "s|image: myacr.azurecr.io/remote-devcontainer:latest|image: ${WORKSPACE_IMAGE}|g" \
   "${MANIFESTS_DIR}/dev-workspace-deployment.yaml" | kubectl apply -f -
+
+# 7.1 Grant developer share-level access (narrow scope)
+if [[ "${ENABLE_WORKSPACE_STORAGE_RBAC}" == "true" ]]; then
+  SHARE_SCOPE="${STORAGE_ACCOUNT_ID}/fileServices/default/fileshares/${SHARE_NAME}"
+  echo "--> Ensuring Azure File Share '${SHARE_NAME}' exists for scoped RBAC assignment..."
+  if ! az storage share-rm show --storage-account "${STORAGE_ACCOUNT_NAME}" --name "${SHARE_NAME}" --output none >/dev/null 2>&1; then
+    az storage share-rm create --storage-account "${STORAGE_ACCOUNT_NAME}" --name "${SHARE_NAME}" --output none >/dev/null
+  fi
+
+  echo "--> Assigning share-scoped storage RBAC for developer..."
+  ensure_role_assignment "${SHARE_SCOPE}" "${WORKSPACE_STORAGE_ROLE}" "${DEVELOPER_OBJECT_ID}"
+fi
 
 # 8. Wait for rollout
 echo "--> Waiting for deployment rollout in ${NAMESPACE}..."

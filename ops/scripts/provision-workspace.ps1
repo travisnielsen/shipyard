@@ -11,7 +11,10 @@ param(
     [string]$StorageAccountName,
 
     [Parameter(Position = 3)]
-    [string]$ShareName
+    [string]$ShareName,
+
+    [Parameter(Position = 4)]
+    [string]$DeveloperIdentity
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +27,19 @@ $Namespace = "devcontainer-$Username"
 $StorageClassName = "devcontainer-azurefile-mi-$Username"
 $ManifestsDir = Join-Path $PSScriptRoot '..' | Join-Path -ChildPath '..' | Join-Path -ChildPath 'devcontainer' | Join-Path -ChildPath 'manifests'
 $ManifestsDir = [System.IO.Path]::GetFullPath($ManifestsDir)
+$WorkspaceAksNamespaceRole = if ([string]::IsNullOrWhiteSpace($env:WORKSPACE_AKS_NAMESPACE_ROLE)) { 'Azure Kubernetes Service RBAC Writer' } else { $env:WORKSPACE_AKS_NAMESPACE_ROLE }
+$WorkspaceStorageRole = if ([string]::IsNullOrWhiteSpace($env:WORKSPACE_STORAGE_ROLE)) { 'Storage File Data SMB Share Contributor' } else { $env:WORKSPACE_STORAGE_ROLE }
+$EnableWorkspaceStorageRbac = $true
+if (-not [string]::IsNullOrWhiteSpace($env:ENABLE_WORKSPACE_STORAGE_RBAC) -and $env:ENABLE_WORKSPACE_STORAGE_RBAC.Trim().ToLowerInvariant() -eq 'false') {
+    $EnableWorkspaceStorageRbac = $false
+}
+
+if ([string]::IsNullOrWhiteSpace($DeveloperIdentity)) {
+    $DeveloperIdentity = $env:DEV_WORKSPACE_DEVELOPER_IDENTITY
+}
+if ([string]::IsNullOrWhiteSpace($DeveloperIdentity) -and $Username.Contains('@')) {
+    $DeveloperIdentity = $Username
+}
 
 function Fail {
     param([string]$Message)
@@ -73,8 +89,56 @@ function Wait-DeploymentAvailable {
         [string]$DeploymentName,
         [int]$TimeoutSeconds = 240
     )
-    $result = & kubectl rollout status deployment/$DeploymentName -n $Namespace --timeout="${TimeoutSeconds}s" 2>&1
+    & kubectl rollout status deployment/$DeploymentName -n $Namespace --timeout="${TimeoutSeconds}s" 2>&1 | Out-Null
     return ($LASTEXITCODE -eq 0)
+}
+
+function Resolve-DeveloperObjectId {
+    param([string]$Identity)
+
+    if ([string]::IsNullOrWhiteSpace($Identity)) {
+        return $null
+    }
+
+    if ($Identity -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+        return [PSCustomObject]@{
+            id  = $Identity
+            upn = $Identity
+        }
+    }
+
+    $user = Invoke-AzJson @('ad', 'user', 'show', '--id', $Identity, '-o', 'json')
+    if ($null -eq $user -or [string]::IsNullOrWhiteSpace(($user.id | Out-String).Trim())) {
+        return $null
+    }
+
+    return [PSCustomObject]@{
+        id  = ($user.id | Out-String).Trim()
+        upn = ($user.userPrincipalName | Out-String).Trim()
+    }
+}
+
+function Ensure-RoleAssignment {
+    param(
+        [string]$Scope,
+        [string]$Role,
+        [string]$PrincipalId
+    )
+
+    $existing = & az role assignment list --scope $Scope --assignee-object-id $PrincipalId --role $Role --query 'length(@)' --output tsv 2>$null
+    $existing = ($existing | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($existing)) {
+        $existing = '0'
+    }
+
+    if ($existing -ne '0') {
+        return
+    }
+
+    & az role assignment create --scope $Scope --assignee-object-id $PrincipalId --role $Role --output none *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Failed to create role assignment '$Role' on '$Scope' for principal '$PrincipalId'."
+    }
 }
 
 function Show-WorkspaceDiagnostics {
@@ -98,6 +162,13 @@ Write-Host "    Storage RG      : $StorageResourceGroup"
 Write-Host "    Storage account : $StorageAccountName"
 Write-Host "    File share      : $ShareName"
 Write-Host "    StorageClass    : $StorageClassName"
+Write-Host "    AKS user role   : $WorkspaceAksNamespaceRole"
+if ($EnableWorkspaceStorageRbac) {
+    Write-Host "    Storage role    : $WorkspaceStorageRole (share scope)"
+}
+else {
+    Write-Host '    Storage role    : disabled (ENABLE_WORKSPACE_STORAGE_RBAC=false)'
+}
 Write-Host ''
 
 Test-CommandAvailable kubectl
@@ -116,6 +187,12 @@ if ([string]::IsNullOrWhiteSpace($WorkspaceImage)) {
         Fail "Could not resolve a workspace image automatically. Set DEV_WORKSPACE_IMAGE (for example: '<acr-login-server>/remote-devcontainer:latest')."
     }
 }
+
+$developer = Resolve-DeveloperObjectId -Identity $DeveloperIdentity
+if ($null -eq $developer -or [string]::IsNullOrWhiteSpace(($developer.id | Out-String).Trim())) {
+    Fail "Developer identity is required for per-user access control. Pass arg 5 (<developer-identity>) or set DEV_WORKSPACE_DEVELOPER_IDENTITY to a valid user UPN/object ID."
+}
+Write-Host "    Developer       : $($developer.upn)"
 
 Write-Host "    Workspace image : $WorkspaceImage"
 
@@ -233,6 +310,11 @@ if ($null -eq $aksCluster) {
     Fail "Could not query AKS cluster metadata for $AksResourceGroup/$AksClusterName."
 }
 
+$aksResourceId = ($aksCluster.id | Out-String).Trim()
+if ([string]::IsNullOrWhiteSpace($aksResourceId)) {
+    Fail "Could not resolve AKS resource ID for $AksResourceGroup/$AksClusterName."
+}
+
 $kubeletObjectId = $null
 $kubeletIdentityResourceId = $null
 
@@ -281,7 +363,7 @@ if ($missingRoles.Count -gt 0) {
 }
 
 Write-Host "    [7/7] Checking namespace availability..."
-$existingNamespace = & kubectl get namespace $Namespace -o name 2>&1
+& kubectl get namespace $Namespace -o name 2>&1 | Out-Null
 if ($LASTEXITCODE -eq 0) {
     Write-Host "    WARNING: Namespace '$Namespace' already exists. Proceeding with provisioning."
 }
@@ -294,6 +376,10 @@ Write-Host "--> Creating namespace $Namespace..."
 if ($LASTEXITCODE -ne 0) {
     Fail 'Failed to create namespace.'
 }
+
+$namespaceScope = "$aksResourceId/namespaces/$Namespace"
+Write-Host '--> Assigning namespace-scoped AKS RBAC for developer...'
+Ensure-RoleAssignment -Scope $namespaceScope -Role $WorkspaceAksNamespaceRole -PrincipalId $developer.id
 
 Write-Host "--> Enabling SMB OAuth on storage account '$StorageAccountName'..."
 & az storage account update --name $StorageAccountName --resource-group $StorageResourceGroup --enable-smb-oauth true --min-tls-version TLS1_2 --output none
@@ -341,6 +427,21 @@ if (-not [string]::IsNullOrWhiteSpace($WorkspaceImage)) {
     Fail "Deployment manifest still references placeholder image 'myacr.azurecr.io/remote-devcontainer:latest'. Set DEV_WORKSPACE_IMAGE (for example: <acr-login-server>/remote-devcontainer:latest)."
 }
 Invoke-KubectlApplyText $deploymentContent
+
+if ($EnableWorkspaceStorageRbac) {
+    Write-Host "--> Ensuring Azure File Share '$ShareName' exists for scoped RBAC assignment..."
+    & az storage share-rm show --storage-account $StorageAccountName --name $ShareName --output none *> $null
+    if ($LASTEXITCODE -ne 0) {
+        & az storage share-rm create --storage-account $StorageAccountName --name $ShareName --output none *> $null
+        if ($LASTEXITCODE -ne 0) {
+            Fail "Failed to create Azure File Share '$ShareName' for scoped RBAC assignment."
+        }
+    }
+
+    $shareScope = "$storageAccountId/fileServices/default/fileshares/$ShareName"
+    Write-Host '--> Assigning share-scoped storage RBAC for developer...'
+    Ensure-RoleAssignment -Scope $shareScope -Role $WorkspaceStorageRole -PrincipalId $developer.id
+}
 
 Write-Host "--> Waiting for deployment rollout in $Namespace..."
 if (-not (Wait-DeploymentAvailable -Namespace $Namespace -DeploymentName 'dev-workspace' -TimeoutSeconds 240)) {
