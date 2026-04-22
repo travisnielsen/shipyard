@@ -10,6 +10,9 @@ It assumes this repository layout:
 - `devcontainer` for image build and in-container runtime scripts
 - `ops/scripts` for control-plane provisioning and bootstrap scripts
 
+> [!Tip]
+> If you are onboarding to an existing AKS platform (brownfield), use [DEPLOYMENT_RUNBOOK_BROWNFIELD.md](DEPLOYMENT_RUNBOOK_BROWNFIELD.md) for workspace-only provisioning and operations guidance.
+
 ## 1. Prerequisites
 
 Install and configure the following tools:

@@ -2,6 +2,24 @@
 
 Auto-generated from all feature plans. Last updated: 2026-04-16
 
+## Deployment Scenarios
+
+This repository supports **two distinct deployment patterns**:
+
+### Greenfield: Full Infrastructure Deployment
+- **When**: Building from scratch or in a new subscription
+- **What**: Deploys AKS, Azure Virtual Desktop, networking, storage, security services, and DevOps infrastructure (ACR, GitHub Actions, ARC runner controller)
+- **Runbook**: [DEPLOYMENT_RUNBOOK.md](../../docs/DEPLOYMENT_RUNBOOK.md)
+- **Technologies**: Terraform >= 1.10.0, Bicep, Azure CLI, GitHub Actions, Helm
+
+### Brownfield: Developer Workspace on Existing AKS
+- **When**: AKS cluster and platform services already exist (owned by platform/DevOps teams)
+- **What**: Provisions per-user remote devcontainer workspaces on an existing AKS cluster
+- **Scope**: Developer workspace operations only — assumes image registry, CI/CD, and GitHub runners managed externally
+- **Runbook**: [DEPLOYMENT_RUNBOOK_BROWNFIELD.md](../../docs/DEPLOYMENT_RUNBOOK_BROWNFIELD.md)
+- **Technologies**: Bash, PowerShell 7, Azure CLI, kubectl, kubelogin
+- **Prerequisites**: AKS 1.34+, Azure Files CSI driver, Azure RBAC for Kubernetes, storage account with SMB OAuth
+
 ## Active Technologies
 - HCL / Terraform >= 1.10.0 (bumped from 1.9 — required by `avm-res-compute-virtualmachine` v0.20.0) (002-avd-infrastructure)
 - N/A (no application data storage; admin credentials in Azure Key Vault) (002-avd-infrastructure)
@@ -94,8 +112,9 @@ specs/                              # Feature specifications & planning
 
 ## AKS Platform Notes
 
-The AKS cluster runs Kubernetes 1.34+. Scripts and Terraform must account for
-these version-specific behaviors:
+### Version Requirements
+The AKS cluster in greenfield deployments and brownfield prerequisites enforce **Kubernetes 1.34+**.
+Scripts and Terraform must account for version-specific behaviors:
 
 | Behavior | AKS < 1.34 | AKS >= 1.34 |
 |---|---|---|
@@ -103,11 +122,36 @@ these version-specific behaviors:
 | CSI driver identity for storage ops | Kubelet (agentpool) managed identity | **Cluster managed identity** — the cluster MI (not kubelet) performs file share create/delete. Both identities need storage RBAC roles. |
 | Required RBAC on storage account | `Storage Account Contributor` + `Storage File Data SMB Share Contributor` on kubelet MI | Same roles on **both** the kubelet MI **and** the cluster MI. |
 
-**Before writing or modifying any script that interacts with AKS resources**:
-1. Run `kubectl version -o json` to confirm the server version.
+### Checklist Before Interacting with AKS
+1. Run `kubectl version -o json` to confirm the server version (must be >= 1.34).
 2. Do **not** assume `csi-azurefile-controller` Deployment exists — check for the
    DaemonSet `csi-azurefile-node` in kube-system as the fallback.
 3. When assigning storage RBAC, include the cluster identity
    (`az aks show --query identity.principalId`) in addition to the kubelet identity.
+4. Verify Azure Files CSI driver is installed: `kubectl get daemonset -n kube-system csi-azurefile-node`
+5. For brownfield scenarios, validate all prerequisites in [DEPLOYMENT_RUNBOOK_BROWNFIELD.md](../../docs/DEPLOYMENT_RUNBOOK_BROWNFIELD.md#3-minimum-aks-baseline-brownfield-gate).
+
+### Brownfield AKS Requirements
+Brownfield workspace provisioning requires:
+- Kubernetes >= 1.34 (hard requirement for managed identity mount mode)
+- Azure Files CSI driver `file.csi.azure.com` operational
+- Azure RBAC for Kubernetes enabled (`disable_local_accounts = true`, `enable_azure_rbac = true`)
+- Azure Policy add-on enabled (recommended)
+- Private cluster mode with system private DNS zone (recommended)
+- Storage account with SMB OAuth enabled
+- Network: private endpoints for ACR, Key Vault, Storage (linked to AKS VNet)
+
+### Network and Port Requirements
+
+AVD to AKS devcontainer communication requires specific ports and private network connectivity. See [PORT_REQUIREMENTS.md](../../docs/PORT_REQUIREMENTS.md) for comprehensive port matrix, network topology, NSG rules, and troubleshooting guidance.
+
+**Quick Reference**:
+- **6443/TCP (HTTPS)** — Kubernetes API server (kubectl, kubelogin, workload identity)
+- **8443/TCP (HTTPS)** — Code-server pod (VS Code remote attach via kubectl port-forward)
+- **443/TCP (HTTPS)** — Private endpoints for ACR, Key Vault
+- **445/TCP (SMB3)** — Azure Files persistent volume mounts (managed identity auth)
+- **53/UDP** — Private DNS zones (name resolution)
+
+All traffic is encrypted and confined to private subnets; no internet routes or public IPs required.
 
 <!-- MANUAL ADDITIONS END -->
