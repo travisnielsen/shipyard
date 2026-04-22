@@ -29,9 +29,10 @@ jobs:
           docker build -f ./devcontainer/Dockerfile -t remote-devcontainer:ci ./devcontainer
 
       - name: Run tool version smoke tests
+        timeout-minutes: 8
         run: |
           set -euo pipefail
-          docker run --rm remote-devcontainer:ci /usr/local/bin/tool-version-smoke-test.sh
+          docker run --rm --entrypoint /usr/local/bin/tool-version-smoke-test.sh remote-devcontainer:ci
 
   build-and-push:
     needs: ci-build-and-smoke
