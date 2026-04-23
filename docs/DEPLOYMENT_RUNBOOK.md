@@ -13,6 +13,180 @@ It assumes this repository layout:
 > [!Tip]
 > If you are onboarding to an existing AKS platform (brownfield), use [DEPLOYMENT_RUNBOOK_BROWNFIELD.md](DEPLOYMENT_RUNBOOK_BROWNFIELD.md) for workspace-only provisioning and operations guidance.
 
+## Egress Mode Selection
+
+Shipyard supports two **mutually exclusive** outbound egress modes. Choose one before deployment:
+
+### Option 1: Managed Egress via Azure Firewall (Enterprise)
+- **Policy-driven outbound**: Deny-by-default allow-list
+- **DNS/FQDN filtering**: Control destinations by domain name
+- **Hub-and-spoke topology**: Centralized egress boundary
+- **Configuration**:
+  ```hcl
+  managed_egress_enabled        = true
+  enable_nat_gateway            = false
+  managed_egress_firewall_sku   = "Standard"
+  managed_egress_hub_vnet_cidr  = "10.80.0.0/16"
+  managed_egress_allow_fqdns = [
+    "management.azure.com",
+    "login.microsoftonline.com",
+    "mcr.microsoft.com"
+  ]
+  ```
+
+### Option 2: NAT Gateway (Default for Quick Start)
+- **All-destinations-allowed**: Simpler, less restrictive
+- **Existing infra reuse**: Standard NAT Gateway pattern
+- **Configuration**:
+  ```hcl
+  managed_egress_enabled = false
+  enable_nat_gateway     = true
+  ```
+
+> [!IMPORTANT]
+> Exactly ONE mode must be active. Terraform validation will prevent conflicting configurations.
+
+## Mode Transitions
+
+If you need to switch from one egress mode to another after initial deployment, follow these procedures:
+
+### Migrating from NAT Gateway to Managed Egress
+
+1. **Update terraform.tfvars**:
+   ```hcl
+   managed_egress_enabled = true
+   enable_nat_gateway     = false
+   managed_egress_allow_fqdns = [
+     "management.azure.com",
+     "login.microsoftonline.com",
+     "mcr.microsoft.com",
+     # Add your custom destinations
+   ]
+   ```
+
+2. **Plan the transition**:
+   ```bash
+   cd infra
+   terraform plan
+   ```
+   Expect to see:
+   - **Destroy**: NAT Gateway resources (public IP, NAT Gateway, associations)
+   - **Create**: Hub VNet, Azure Firewall, peering, route tables, UDRs
+
+3. **Apply the transition**:
+   ```bash
+   terraform apply
+   ```
+   Terraform creates the firewall infrastructure and removes NAT resources in a single atomic operation. Outbound connectivity remains available due to UDR steering; expect no service disruption for graceful workload transitions.
+
+4. **Validate the new mode**:
+   - Check hub VNet exists: `az network vnet list -g <rg> --query "[?contains(name, 'hub')]"`
+   - Verify firewall public IP: `az network public-ip list -g <rg> --query "[?contains(name, 'fw')]"`
+   - Confirm route tables are in place: `az network route-table list -g <rg>`
+
+### Migrating from Managed Egress to NAT Gateway
+
+1. **Update terraform.tfvars**:
+   ```hcl
+   managed_egress_enabled = false
+   enable_nat_gateway     = true
+   ```
+
+2. **Plan the transition**:
+   ```bash
+   cd infra
+   terraform plan
+   ```
+   Expect to see:
+   - **Destroy**: Azure Firewall, hub VNet, peering, route tables, UDRs
+   - **Create**: NAT Gateway resources (public IP, NAT Gateway, associations)
+
+3. **Apply the transition**:
+   ```bash
+   terraform apply
+   ```
+
+4. **Validate the new mode**:
+   - Check NAT Gateway exists: `az network nat gateway list -g <rg>`
+   - Confirm NAT public IP: `az network public-ip list -g <rg> --query "[?contains(name, 'nat')]"`
+
+> [!WARNING]
+> Mode transitions create and destroy infrastructure atomically. Plan transitions during maintenance windows for production environments. Workloads that restart during the transition may experience brief connectivity loss as subnet associations change.
+
+## Hub-and-Spoke Topology Verification (Managed Egress Mode)
+
+Once managed egress is enabled and Terraform apply succeeds, verify the hub-and-spoke infrastructure:
+
+### 1. Verify Hub VNet
+
+```bash
+az network vnet list -g <rg> --query "[?contains(name, 'hub')]" -o table
+```
+
+Expected output: One VNet named `vnet-shipyard-egress-hub` (or similar) with CIDR matching `managed_egress_hub_vnet_cidr`.
+
+### 2. Verify Azure Firewall
+
+```bash
+az network firewall list -g <rg> -o table
+```
+
+Expected output: One firewall named `fw-shipyard-egress` (or similar) in the hub VNet.
+
+### 3. Verify Firewall Public IP
+
+```bash
+az network public-ip list -g <rg> --query "[?contains(name, 'firewall')]" -o table
+```
+
+Expected output: One public IP named `pip-shipyard-firewall` (or similar). Note the IP address for external monitoring/logging.
+
+### 4. Verify VNet Peering
+
+```bash
+az network vnet peering list --resource-group <rg> --vnet-name vnet-<prefix>
+```
+
+Expected output: Two peerings:
+- `peer-shipyard-spoke-to-hub`
+- `peer-shipyard-hub-to-spoke`
+
+Both should show `"peeringState": "Connected"`.
+
+### 5. Verify Route Tables
+
+```bash
+az network route-table list -g <rg> --query "[?contains(name, 'egress')]" -o table
+```
+
+Expected output: One route table named `rt-shipyard-egress-managed` with a route:
+- **Destination**: `0.0.0.0/0`
+- **Next hop type**: Virtual Appliance
+- **Next hop IP**: Firewall's private IP address
+
+### 6. Verify Subnet Associations
+
+```bash
+az network vnet subnet list -g <rg> --vnet-name vnet-<prefix> --query "[?routeTable] | [].{name: name, routeTable: routeTable.id}" -o table
+```
+
+Expected output: Outbound-capable subnets associated:
+- `snet-shipyard-aks`
+- `snet-shipyard-acr-tasks`
+- `snet-shipyard-vdi`
+- `snet-shipyard-vm`
+
+### Troubleshooting
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Peering status is "Disconnected" | VNet peering not properly established | Check for network policies blocking peering; re-run `terraform apply` |
+| Route table not associated | Subnet association failed during apply | Check Terraform output for errors; verify subnet exists |
+| Firewall creation failed | Invalid subnet CIDR or SKU unavailable in region | Adjust CIDR ranges; confirm region supports Premium SKU if selected |
+| Outbound traffic blocked despite allow-list | Firewall policy not configured yet | Policy rules are configured in Phase 5 (US3); this phase only establishes topology |
+
+---
+
 ## 1. Prerequisites
 
 Install and configure the following tools:

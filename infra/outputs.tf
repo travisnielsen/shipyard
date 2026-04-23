@@ -78,6 +78,45 @@ output "dev_vm_nat_associated_subnet_id" {
   description = "Deprecated alias for workload_nat_associated_subnet_id."
 }
 
+# Managed Egress Outputs (populated when managed_egress_enabled = true)
+output "egress_mode_effective" {
+  value       = var.managed_egress_enabled ? "managed_firewall" : "nat_gateway"
+  description = "Effective egress mode: either 'managed_firewall' or 'nat_gateway'."
+}
+
+output "managed_egress_hub_vnet_id" {
+  value       = var.managed_egress_enabled ? try(azurerm_virtual_network.managed_egress_hub[0].id, null) : null
+  description = "Hub VNet ID for managed egress (null if NAT mode active)."
+}
+
+output "managed_egress_firewall_id" {
+  value       = var.managed_egress_enabled ? try(azurerm_firewall.managed_egress[0].id, null) : null
+  description = "Azure Firewall resource ID (null if NAT mode active)."
+}
+
+output "managed_egress_firewall_private_ip" {
+  value       = var.managed_egress_enabled ? try(azurerm_firewall.managed_egress[0].ip_configuration[0].private_ip_address, null) : null
+  description = "Firewall private IP used as UDR next hop for managed egress (null if NAT mode active)."
+}
+
+output "managed_egress_hub_vnet_cidr" {
+  value       = var.managed_egress_enabled ? var.managed_egress_hub_vnet_cidr : null
+  description = "Hub VNet CIDR block (null if NAT mode active)."
+}
+
+output "managed_egress_firewall_public_ip" {
+  value       = var.managed_egress_enabled ? try(azurerm_public_ip.firewall[0].ip_address, null) : null
+  description = "Firewall public IP address for management and outbound NAT (null if NAT mode active)."
+}
+
+output "managed_egress_peering_ids" {
+  value = var.managed_egress_enabled ? {
+    spoke_to_hub = try(azurerm_virtual_network_peering.spoke_to_hub[0].id, null)
+    hub_to_spoke = try(azurerm_virtual_network_peering.hub_to_spoke[0].id, null)
+  } : null
+  description = "VNet peering resource IDs for hub-spoke topology (null if NAT mode active)."
+}
+
 output "bastion_name" {
   value       = var.deploy_test_vm ? azurerm_bastion_host.workload[0].name : null
   description = "Name of the Azure Bastion host for private RDP access to the workload VM."

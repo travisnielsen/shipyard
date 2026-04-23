@@ -353,3 +353,101 @@ variable "grant_current_principal_acr_push" {
   type        = bool
   default     = true
 }
+
+# ============================================================================
+# Managed Egress via Azure Firewall Configuration (T004-T006)
+# ============================================================================
+
+variable "managed_egress_enabled" {
+  description = "Enable managed egress mode via Azure Firewall in a dedicated hub VNet. Mutually exclusive with enable_nat_gateway."
+  type        = bool
+  default     = false
+}
+
+variable "managed_egress_firewall_sku" {
+  description = "Azure Firewall SKU for managed egress mode. Standard supports DNS/FQDN filtering; Premium supports TLS inspection and advanced threat intelligence."
+  type        = string
+  default     = "Standard"
+
+  validation {
+    condition     = contains(["Standard", "Premium"], var.managed_egress_firewall_sku)
+    error_message = "managed_egress_firewall_sku must be 'Standard' or 'Premium'."
+  }
+}
+
+variable "managed_egress_hub_vnet_cidr" {
+  description = "CIDR block for the dedicated managed egress hub VNet. Must not overlap with vnet_cidr."
+  type        = string
+  default     = "10.80.0.0/16"
+
+  validation {
+    condition     = can(cidrhost(var.managed_egress_hub_vnet_cidr, 0))
+    error_message = "managed_egress_hub_vnet_cidr must be a valid CIDR block."
+  }
+}
+
+variable "managed_egress_hub_subnet_cidrs" {
+  description = "Subnet CIDRs for the managed egress hub VNet. Must include 'azure_firewall' subnet."
+  type = object({
+    azure_firewall = string
+  })
+  default = {
+    azure_firewall = "10.80.0.0/26"
+  }
+
+  validation {
+    condition     = can(cidrhost(var.managed_egress_hub_subnet_cidrs.azure_firewall, 0))
+    error_message = "All subnet CIDRs must be valid CIDR blocks."
+  }
+}
+
+variable "managed_egress_allow_fqdns" {
+  description = "List of fully qualified domain names (FQDNs) to allow in managed egress outbound policy. Duplicate entries are not permitted."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.managed_egress_allow_fqdns) == length(distinct(var.managed_egress_allow_fqdns))
+    error_message = "managed_egress_allow_fqdns must not contain duplicate values."
+  }
+}
+
+variable "managed_egress_allow_ip_destinations" {
+  description = "List of IP addresses or CIDR blocks to allow in managed egress outbound policy (optional, for non-FQDN traffic)."
+  type        = list(string)
+  default     = []
+}
+
+variable "managed_egress_required_platform_fqdns" {
+  description = "Baseline platform dependency FQDNs that must remain reachable in managed egress mode. These are auto-merged into the effective allow-list."
+  type        = list(string)
+  default = [
+    "management.azure.com",
+    "login.microsoftonline.com",
+    "mcr.microsoft.com"
+  ]
+}
+
+# ============================================================================
+# FIREWALL POLICY & CAPABILITY VALIDATION (T024-T026)
+# ============================================================================
+
+variable "managed_egress_firewall_policy_name" {
+  description = "Name for the Azure Firewall policy resource. Only used in managed egress mode."
+  type        = string
+  default     = ""
+}
+
+variable "managed_egress_enable_dns_proxy" {
+  description = "Enable DNS proxy on the firewall for FQDN-based filtering. Required for proper DNS interception."
+  type        = bool
+  default     = true
+}
+
+# Firewall SKU capability validation is implicit:
+# - Standard SKU: Supports DNS/FQDN filtering via firewall policy application rules
+# - Premium SKU: Includes Standard + TLS inspection, threat intelligence, URL filtering
+# If TLS inspection features are needed later, upgrade SKU from Standard to Premium
+# and update the firewall policy rules to include inspection rules.
+
+

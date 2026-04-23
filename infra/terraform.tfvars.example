@@ -58,6 +58,49 @@ arc_runner_max_replicas       = 5
 arc_runner_image              = "<acr-name>.azurecr.io/actions-runner:latest"
 
 # Dedicated ARC runner nodepool controls
+
+# ============================================================================
+# Managed Egress Configuration (Mutually Exclusive with NAT Gateway)
+# ============================================================================
+# Choose exactly ONE outbound mode by uncommenting the desired option below.
+# IMPORTANT: Exactly one mode must be active; conflicting settings will fail validation.
+
+# ---- OPTION A: Managed Egress via Azure Firewall (Enterprise) ----
+# Use this mode for policy-driven outbound access with DNS/FQDN filtering.
+# Requires defining an allow-list of approved destinations.
+# Enable this by setting managed_egress_enabled=true and enable_nat_gateway=false.
+#
+# managed_egress_enabled = true
+# enable_nat_gateway     = false
+# managed_egress_firewall_sku   = "Standard"  # or "Premium" for advanced threat inspection
+# managed_egress_hub_vnet_cidr  = "10.80.0.0/16"  # Must not overlap with 10.70.0.0/16
+# managed_egress_hub_subnet_cidrs = {
+#   azure_firewall = "10.80.0.0/26"
+# }
+# managed_egress_allow_fqdns = [
+#   "management.azure.com",
+#   "login.microsoftonline.com",
+#   "mcr.microsoft.com",
+#   "example.com",
+# ]
+# managed_egress_allow_ip_destinations = [
+#   # "203.0.113.0/24",
+# ]
+
+# ---- OPTION B: NAT Gateway (Default / Quick Start) ----
+# Use this mode for simpler deployments without outbound filtering.
+# All outbound destinations are allowed by default.
+# Enable this by setting managed_egress_enabled=false and enable_nat_gateway=true.
+#
+managed_egress_enabled = false
+enable_nat_gateway     = true
+managed_egress_firewall_sku   = "Standard"
+managed_egress_hub_vnet_cidr  = "10.80.0.0/16"
+managed_egress_hub_subnet_cidrs = {
+  azure_firewall = "10.80.0.0/26"
+}
+managed_egress_allow_fqdns = []
+managed_egress_allow_ip_destinations = []
 arc_runner_nodepool_enabled   = true
 arc_runner_nodepool_name      = "arc"
 arc_runner_nodepool_vm_size   = "Standard_D2as_v5"

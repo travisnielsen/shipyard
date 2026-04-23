@@ -34,6 +34,7 @@ Shipping heavy developer tools (Docker, language runtimes, build systems, databa
 
 **Greenfield** — Deploy complete infrastructure from scratch:
 - Full AKS cluster, networking, storage, and container registry
+- Optional managed egress path through a dedicated Azure Firewall hub VNet for outbound filtering and controlled internet access
 - Terraform-based infrastructure as code (IaC)
 - Includes optional Azure Virtual Desktop (AVD) for enterprise end-user compute
 - See [DEPLOYMENT_RUNBOOK.md](docs/DEPLOYMENT_RUNBOOK.md)
@@ -116,6 +117,8 @@ graph TB
 ```
 
 All traffic is **encrypted, private, and confined to your VNet**. For detailed port requirements, see [PORT_REQUIREMENTS.md](docs/PORT_REQUIREMENTS.md).
+
+For the managed egress hub-and-spoke pattern and outbound traffic path through Azure Firewall, see [Managed Egress Topology](docs/MANAGED_EGRESS_TOPOLOGY.md).
 
 ## Repository Layout
 

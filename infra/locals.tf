@@ -57,4 +57,39 @@ locals {
   }
 
   arc_bootstrap_command = var.arc_bootstrap_script_shell == "powershell" ? "pwsh -File ${local.arc_bootstrap_script_path}" : "bash ${local.arc_bootstrap_script_path}"
+
+  # ============================================================================
+  # Managed Egress Feature Gating (T007)
+  # ============================================================================
+
+  # Validation: Exactly one egress mode must be active (T005 - Mutual Exclusivity)
+  managed_egress_nat_mode_validation = (
+    (var.managed_egress_enabled && !var.enable_nat_gateway) ||
+    (!var.managed_egress_enabled && var.enable_nat_gateway)
+  )
+
+  # Force failure if mutual exclusivity is violated
+  managed_egress_validation_check = var.managed_egress_enabled == var.enable_nat_gateway ? (
+    file("ERROR: Egress mode conflict - exactly one of (managed_egress_enabled=true AND enable_nat_gateway=false) OR (managed_egress_enabled=false AND enable_nat_gateway=true) is required.")
+  ) : "valid"
+
+  # Effective outbound egress mode: either "managed_firewall" or "nat_gateway"
+  effective_egress_mode = var.managed_egress_enabled ? "managed_firewall" : "nat_gateway"
+
+  # Consolidated list of allowed FQDNs in managed egress mode (required platform + user-defined)
+  managed_egress_fqdns_effective = var.managed_egress_enabled ? distinct(concat(
+    var.managed_egress_required_platform_fqdns,
+    var.managed_egress_allow_fqdns
+  )) : []
+
+  # Subnets eligible for managed egress UDR attachment (outbound-capable subnets)
+  managed_egress_eligible_subnets = [
+    "aks_nodes",
+    "acr_tasks",
+    "vdi_integration",
+    "dev_vm"
+  ]
+
+  # Computed firewall policy name (for managed egress mode only)
+  managed_egress_firewall_policy_name = var.managed_egress_enabled ? "fwpolicy-${var.prefix}-egress" : ""
 }
