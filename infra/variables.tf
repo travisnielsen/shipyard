@@ -444,6 +444,17 @@ variable "managed_egress_enable_dns_proxy" {
   default     = true
 }
 
+variable "managed_egress_default_rule_action" {
+  description = "Default fallback firewall action in managed egress mode. Use 'Allow' for initial allow-by-default posture, or 'Deny' for strict allow-list enforcement."
+  type        = string
+  default     = "Allow"
+
+  validation {
+    condition     = contains(["Allow", "Deny"], var.managed_egress_default_rule_action)
+    error_message = "managed_egress_default_rule_action must be 'Allow' or 'Deny'."
+  }
+}
+
 # Firewall SKU capability validation is implicit:
 # - Standard SKU: Supports DNS/FQDN filtering via firewall policy application rules
 # - Premium SKU: Includes Standard + TLS inspection, threat intelligence, URL filtering

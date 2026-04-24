@@ -20,6 +20,7 @@ module "networking" {
       name                              = "snet-${var.prefix}-aks"
       address_prefix                    = var.subnet_cidrs.aks_nodes
       nat_gateway                       = local.effective_egress_mode == "nat_gateway" ? { id = azurerm_nat_gateway.workload[0].id } : null
+      route_table                       = local.effective_egress_mode == "managed_firewall" ? { id = azurerm_route_table.managed_egress[0].id } : null
       network_security_group            = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-aks-nsg-${var.location}" }
       private_endpoint_network_policies = "Disabled"
       service_endpoints_with_location   = []
@@ -28,6 +29,7 @@ module "networking" {
       name                            = "snet-${var.prefix}-acr-tasks"
       address_prefix                  = var.subnet_cidrs.acr_tasks
       nat_gateway                     = local.effective_egress_mode == "nat_gateway" ? { id = azurerm_nat_gateway.workload[0].id } : null
+      route_table                     = local.effective_egress_mode == "managed_firewall" ? { id = azurerm_route_table.managed_egress[0].id } : null
       service_endpoints_with_location = []
     }
     private_endpoints = {
@@ -41,6 +43,7 @@ module "networking" {
       name                            = "snet-${var.prefix}-vdi"
       address_prefix                  = var.subnet_cidrs.vdi_integration
       nat_gateway                     = local.effective_egress_mode == "nat_gateway" ? { id = azurerm_nat_gateway.workload[0].id } : null
+      route_table                     = local.effective_egress_mode == "managed_firewall" ? { id = azurerm_route_table.managed_egress[0].id } : null
       network_security_group          = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-vdi-nsg-${var.location}" }
       service_endpoints_with_location = []
     }
@@ -48,6 +51,7 @@ module "networking" {
       name                            = "snet-${var.prefix}-vm"
       address_prefix                  = var.subnet_cidrs.dev_vm
       nat_gateway                     = local.effective_egress_mode == "nat_gateway" ? { id = azurerm_nat_gateway.workload[0].id } : null
+      route_table                     = local.effective_egress_mode == "managed_firewall" ? { id = azurerm_route_table.managed_egress[0].id } : null
       network_security_group          = { id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.this.name}/providers/Microsoft.Network/networkSecurityGroups/vnet-${var.prefix}-snet-${var.prefix}-vm-nsg-${var.location}" }
       service_endpoints_with_location = []
     }
@@ -304,41 +308,28 @@ resource "azurerm_route_table" "managed_egress" {
 # ============================================================================
 # ROUTE TABLE ASSOCIATIONS (T020)
 # ============================================================================
-# Attach managed egress route table to all outbound-capable subnets when in managed mode.
-# Subnets: aks_nodes, acr_tasks, vdi_integration, dev_vm
+# Managed egress route-table binding is defined in module.networking subnet
+# definitions via each subnet's route_table attribute, and explicitly enforced
+# here so Terraform can track association drift directly.
 
-resource "azurerm_subnet_route_table_association" "managed_egress_aks_nodes" {
-  count = var.managed_egress_enabled ? 1 : 0
+resource "azurerm_subnet_route_table_association" "managed_egress" {
+  for_each = var.managed_egress_enabled ? {
+    aks_nodes       = module.networking.subnets["aks_nodes"].resource_id
+    acr_tasks       = module.networking.subnets["acr_tasks"].resource_id
+    vdi_integration = module.networking.subnets["vdi_integration"].resource_id
+    dev_vm          = module.networking.subnets["dev_vm"].resource_id
+  } : {}
 
-  subnet_id      = module.networking.subnets["aks_nodes"].resource_id
-  route_table_id = azurerm_route_table.managed_egress[0].id
-}
-
-resource "azurerm_subnet_route_table_association" "managed_egress_acr_tasks" {
-  count = var.managed_egress_enabled ? 1 : 0
-
-  subnet_id      = module.networking.subnets["acr_tasks"].resource_id
-  route_table_id = azurerm_route_table.managed_egress[0].id
-}
-
-resource "azurerm_subnet_route_table_association" "managed_egress_vdi_integration" {
-  count = var.managed_egress_enabled ? 1 : 0
-
-  subnet_id      = module.networking.subnets["vdi_integration"].resource_id
-  route_table_id = azurerm_route_table.managed_egress[0].id
-}
-
-resource "azurerm_subnet_route_table_association" "managed_egress_dev_vm" {
-  count = var.managed_egress_enabled ? 1 : 0
-
-  subnet_id      = module.networking.subnets["dev_vm"].resource_id
+  subnet_id      = each.value
   route_table_id = azurerm_route_table.managed_egress[0].id
 }
 
 # ============================================================================
-# FIREWALL POLICY - Default-Deny with Allow-List (T027)
+# FIREWALL POLICY - CONFIGURABLE FALLBACK ACTION (T027)
 # ============================================================================
-# Firewall policy with default-deny posture enforces explicit allow-list only.
+# Firewall policy fallback action is configurable for rollout safety:
+# - Allow: initial allow-by-default baseline
+# - Deny: strict allow-list posture
 resource "azurerm_firewall_policy" "managed_egress" {
   count = var.managed_egress_enabled ? 1 : 0
 
@@ -424,22 +415,24 @@ resource "azurerm_firewall_policy_rule_collection_group" "managed_egress_net_rul
 }
 
 # ============================================================================
-# ASSOCIATE FIREWALL POLICY TO FIREWALL (T030)
+# DEFAULT FALLBACK COLLECTIONS (T030)
 # ============================================================================
-resource "azurerm_firewall_policy_rule_collection_group" "managed_egress_default_deny" {
+# Azure Firewall is deny-by-default. The fallback collections below make
+# initial deployments allow-by-default when configured to "Allow".
+resource "azurerm_firewall_policy_rule_collection_group" "managed_egress_default_fallback" {
   count = var.managed_egress_enabled ? 1 : 0
 
-  name               = "rcg-default-deny"
+  name               = "rcg-default-fallback"
   firewall_policy_id = azurerm_firewall_policy.managed_egress[0].id
   priority           = 65000 # Highest priority = last to evaluate
 
   application_rule_collection {
-    name     = "arc-default-deny"
+    name     = "arc-default-fallback-app"
     priority = 65000
-    action   = "Deny"
+    action   = var.managed_egress_default_rule_action
 
     rule {
-      name              = "rule-default-deny-all"
+      name              = "rule-default-fallback-all"
       source_addresses  = ["*"]
       destination_fqdns = ["*"]
       protocols {
@@ -450,6 +443,20 @@ resource "azurerm_firewall_policy_rule_collection_group" "managed_egress_default
         type = "Https"
         port = 443
       }
+    }
+  }
+
+  network_rule_collection {
+    name     = "nrc-default-fallback-network"
+    priority = 64999
+    action   = var.managed_egress_default_rule_action
+
+    rule {
+      name                  = "rule-default-fallback-all"
+      source_addresses      = ["*"]
+      destination_addresses = ["*"]
+      protocols             = ["TCP", "UDP", "ICMP"]
+      destination_ports     = ["*"]
     }
   }
 
