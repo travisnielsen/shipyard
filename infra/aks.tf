@@ -69,7 +69,7 @@ module "aks" {
   network_profile = {
     network_plugin = "azure"
     network_policy = "azure"
-    outbound_type  = "loadBalancer"
+    outbound_type  = local.effective_egress_mode == "managed_firewall" ? "userDefinedRouting" : "loadBalancer"
   }
 
   api_server_access_profile = {

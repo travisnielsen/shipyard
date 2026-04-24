@@ -1,0 +1,84 @@
+# Terraform Variable Contract: Managed Egress via Azure Firewall
+# Feature: 003-managed-egress-firewall
+# File: infra/variables.tf
+# Updated: 2026-04-22
+
+variables:
+  managed_egress_enabled:
+    type: bool
+    default: false
+    description: >
+      Feature flag. When true, Shipyard uses managed outbound egress through
+      Azure Firewall in a dedicated hub VNet. This mode is mutually exclusive
+      with NAT gateway mode.
+
+  enable_nat_gateway:
+    type: bool
+    default: true
+    description: >
+      Existing NAT gateway feature flag. Must remain true when managed egress
+      is disabled. Must be false when managed egress is enabled.
+    validation:
+      condition: >
+        (var.managed_egress_enabled && !var.enable_nat_gateway) ||
+        (!var.managed_egress_enabled && var.enable_nat_gateway)
+      error_message: >
+        Exactly one outbound mode must be active: set
+        managed_egress_enabled=true with enable_nat_gateway=false, or
+        managed_egress_enabled=false with enable_nat_gateway=true.
+
+  managed_egress_firewall_sku:
+    type: string
+    default: "Standard"
+    description: >
+      Azure Firewall SKU for managed egress mode. Standard supports DNS/FQDN
+      allow-list filtering. Premium is optional for advanced inspection use
+      cases.
+    validation:
+      condition: contains(["Standard", "Premium"], var.managed_egress_firewall_sku)
+      error_message: managed_egress_firewall_sku must be Standard or Premium.
+
+  managed_egress_hub_vnet_cidr:
+    type: string
+    default: "10.80.0.0/16"
+    required_when: managed_egress_enabled == true
+    description: >
+      CIDR for dedicated managed-egress hub VNet. Must not overlap with
+      var.vnet_cidr.
+
+  managed_egress_hub_subnet_cidrs:
+    type: object
+    default:
+      azure_firewall: "10.80.0.0/26"
+    required_when: managed_egress_enabled == true
+    description: >
+      Hub subnet CIDRs. `azure_firewall` subnet is used for Azure Firewall and
+      must satisfy Azure Firewall subnet size requirements.
+
+  managed_egress_allow_fqdns:
+    type: list(string)
+    default: []
+    required_when: managed_egress_enabled == true
+    description: >
+      Explicit outbound DNS destination allow-list for managed egress policy.
+      Duplicate values are invalid and entries must be valid DNS names.
+    validation:
+      condition: length(var.managed_egress_allow_fqdns) == length(distinct(var.managed_egress_allow_fqdns))
+      error_message: managed_egress_allow_fqdns must not contain duplicate values.
+
+  managed_egress_allow_ip_destinations:
+    type: list(string)
+    default: []
+    description: >
+      Optional IP/CIDR destination allow-list for non-FQDN traffic patterns.
+      Used in managed egress mode when required.
+
+  managed_egress_required_platform_fqdns:
+    type: list(string)
+    default:
+      - "management.azure.com"
+      - "login.microsoftonline.com"
+      - "mcr.microsoft.com"
+    description: >
+      Baseline platform dependencies that should remain reachable in managed
+      mode unless operators intentionally override.
